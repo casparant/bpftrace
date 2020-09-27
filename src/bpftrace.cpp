@@ -3,7 +3,6 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
-#include <cxxabi.h>
 #include <fstream>
 #include <glob.h>
 #include <iomanip>
@@ -27,6 +26,8 @@
 
 #include <bcc/bcc_syms.h>
 #include <bcc/perf_reader.h>
+
+#include <llvm/Demangle/Demangle.h>
 
 #include "ast/async_event_types.h"
 #include "attached_probe.h"
@@ -88,7 +89,7 @@ std::set<std::string> find_wildcard_matches_internal(
                         : "";
       if (symbol_has_cpp_mangled_signature(fun_line))
       {
-        char *demangled_name = abi::__cxa_demangle(
+        char *demangled_name = llvm::itaniumDemangle(
             fun_line.c_str(), nullptr, nullptr, nullptr);
         if (demangled_name)
         {
@@ -447,7 +448,7 @@ std::set<std::string> BPFtrace::find_symbol_matches(
     {
       if (symbol_has_cpp_mangled_signature(line_func))
       {
-        char *demangled_name = abi::__cxa_demangle(
+        char *demangled_name = llvm::itaniumDemangle(
             line_func.c_str(), nullptr, nullptr, nullptr);
         if (demangled_name)
         {
@@ -537,11 +538,21 @@ void BPFtrace::request_finalize()
     child_->terminate();
 }
 
-void perf_event_printer(void *cb_cookie, void *data, int size __attribute__((unused)))
+void perf_event_printer(void *cb_cookie, void *data, int size)
 {
+  // The perf event data is not aligned, so we use memcpy to copy the data and
+  // avoid UBSAN errors. Using an std::vector guarantees that it will be aligned
+  // to the largest type. See:
+  // https://stackoverflow.com/questions/8456236/how-is-a-vectors-data-aligned.
+  std::vector<uint8_t> data_aligned;
+  data_aligned.resize(size);
+  memcpy(data_aligned.data(), data, size);
+
   auto bpftrace = static_cast<BPFtrace*>(cb_cookie);
-  auto printf_id = *static_cast<uint64_t*>(data);
-  auto arg_data = static_cast<uint8_t*>(data);
+  auto arg_data = data_aligned.data();
+
+  auto printf_id = *reinterpret_cast<uint64_t *>(arg_data);
+
   int err;
 
   // Ignore the remaining events if perf_event_printer is called during finalization
@@ -2129,6 +2140,28 @@ void BPFtrace::sort_by_key(std::vector<SizedType> key_args,
 
     // Other types don't get sorted
   }
+}
+
+std::string BPFtrace::get_string_literal(const ast::Expression *expr) const
+{
+  if (expr->is_literal)
+  {
+    if (auto *string = dynamic_cast<const ast::String *>(expr))
+      return string->str;
+    else if (auto *str_call = dynamic_cast<const ast::Call *>(expr))
+    {
+      // Positional parameters in the form str($1) can be used as literals
+      if (str_call->func == "str")
+      {
+        if (auto *pos_param = dynamic_cast<const ast::PositionalParameter *>(
+                str_call->vargs->at(0)))
+          return get_param(pos_param->n, true);
+      }
+    }
+  }
+
+  LOG(ERROR) << "Expected string literal, got " << expr->type;
+  return "";
 }
 
 } // namespace bpftrace
