@@ -1252,7 +1252,7 @@ void SemanticAnalyser::visit(Map &map)
       if (expr->type.IsIntTy() && expr->type.size < 8)
       {
         std::string type = expr->type.IsSigned() ? "int64" : "uint64";
-        Expression * cast = new ast::Cast(type, false, expr);
+        Expression *cast = new ast::Cast(type, false, false, expr);
         cast->accept(*this);
         map.vargs->at(i) = cast;
         expr = cast;
@@ -1594,7 +1594,19 @@ void SemanticAnalyser::visit(Unop &unop)
     }
   }
   else if (unop.op == Parser::token::LNOT) {
-    unop.type = CreateUInt(type.size);
+    // CreateUInt() abort if a size is invalid, so check the size here
+    if (!(type.size == 0 || type.size == 1 || type.size == 2 ||
+          type.size == 4 || type.size == 8))
+    {
+      LOG(ERROR, unop.loc, err_)
+          << "The " << opstr(unop)
+          << " operator can not be used on expressions of type '" << type
+          << "'";
+    }
+    else
+    {
+      unop.type = CreateUInt(8 * type.size);
+    }
   }
   else {
     unop.type = CreateInteger(64, type.IsSigned());
@@ -1873,6 +1885,9 @@ void SemanticAnalyser::visit(Cast &cast)
         LOG(ERROR, cast.loc, err_)
             << "Integer pointer casts are not supported for type: ctx";
       }
+
+      if (cast.is_double_pointer)
+        cast.type = CreatePointer(cast.type);
     }
     else
     {
@@ -1903,7 +1918,12 @@ void SemanticAnalyser::visit(Cast &cast)
 
   cast_size = bpftrace_.structs_[cast.cast_type].size;
   if (cast.is_pointer)
+  {
     cast.type = CreatePointer(CreateRecord(cast_size, cast.cast_type));
+
+    if (cast.is_double_pointer)
+      cast.type = CreatePointer(cast.type);
+  }
   else
     cast.type = CreateRecord(cast_size, cast.cast_type);
   cast.type.SetAS(cast.expr->type.GetAS());
