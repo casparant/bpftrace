@@ -90,6 +90,10 @@ and this project adheres to
   - [#1568](https://github.com/iovisor/bpftrace/issues/1568)
 - Fix LNOT
   - [#1570](https://github.com/iovisor/bpftrace/pull/1570)
+- Fix invalid cast handling in tuple
+  - [#1572](https://github.com/iovisor/bpftrace/pull/1572)
+- Check string comparison size
+  - [#1573](https://github.com/iovisor/bpftrace/pull/1573)
 
 #### Tools
 - Hook up execsnoop.bt script onto `execveat` call

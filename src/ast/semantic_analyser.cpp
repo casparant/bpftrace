@@ -1499,6 +1499,21 @@ void SemanticAnalyser::visit(Binop &binop)
           << " operator can not be used on expressions of types " << lhs << ", "
           << rhs;
     }
+    else if (binop.op == Parser::token::EQ &&
+             ((!binop.left->is_literal && binop.right->is_literal) ||
+              (binop.left->is_literal && !binop.right->is_literal)))
+    {
+      auto *lit = binop.left->is_literal ? binop.left : binop.right;
+      auto *str = lit == binop.left ? binop.right : binop.left;
+      auto lit_len = bpftrace_.get_string_literal(lit).size();
+      auto str_len = str->type.GetNumElements();
+      if (lit_len > str_len)
+      {
+        LOG(WARNING, binop.left->loc + binop.loc + binop.right->loc, out_)
+            << "The literal is longer than the variable string (size="
+            << str_len << "), condition will always be false";
+      }
+    }
   }
 
   bool is_signed = lsign && rsign;
@@ -1946,6 +1961,11 @@ void SemanticAnalyser::visit(Tuple &tuple)
     Expression *elem = tuple.elems->at(i);
     elem->accept(*this);
 
+    // If elem type is none that means that the tuple contains some
+    // invalid cast (e.g., (0, (aaa)0)). In this case, skip the tuple
+    // creation. Cast already emits the error.
+    if (elem->type.IsNoneTy())
+      return;
     elements.emplace_back(elem->type);
   }
 
