@@ -108,6 +108,12 @@ and this project adheres to
   - [#1532](https://github.com/iovisor/bpftrace/pull/1532)
 - Fix bitfield access for big endian
   - [#1628](https://github.com/iovisor/bpftrace/pull/1628)
+- Error if using negative length in str() and buf()
+  - [#1621](https://github.com/iovisor/bpftrace/pull/1621)
+- Only create int type Identifier when it is used in sizeof()
+  - [#1622](https://github.com/iovisor/bpftrace/pull/1622)
+- Check exponent value can be expressed in uint64_t
+  - [#1623](https://github.com/iovisor/bpftrace/pull/1623)
 
 #### Tools
 - Hook up execsnoop.bt script onto `execveat` call
