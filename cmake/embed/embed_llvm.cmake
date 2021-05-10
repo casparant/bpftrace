@@ -49,7 +49,6 @@ set(LLVM_LIBRARY_TARGETS
     LLVMBitReader
     LLVMBitWriter
     LLVMBPFAsmParser
-    LLVMBPFAsmPrinter
     LLVMBPFCodeGen
     LLVMBPFDesc
     LLVMBPFDisassembler
@@ -86,7 +85,6 @@ set(LLVM_LIBRARY_TARGETS
     LLVMObject
     LLVMObjectYAML
     LLVMOption
-    LLVMOptRemarks
     LLVMOrcJIT
     LLVMPasses
     LLVMProfileData
@@ -103,6 +101,33 @@ set(LLVM_LIBRARY_TARGETS
     LLVMXRay
     LLVMSupport
     )
+
+
+if(${EMBED_LLVM_VERSION} VERSION_EQUAL "8")
+  set(LLVM_LIBRARY_TARGETS ${LLVM_LIBRARY_TARGETS}
+      LLVMBPFAsmPrinter
+      LLVMOptRemarks
+      )
+endif()
+
+if(${EMBED_LLVM_VERSION} VERSION_EQUAL "12")
+  set(LLVM_LIBRARY_TARGETS ${LLVM_LIBRARY_TARGETS}
+    LLVMBitstreamReader
+    LLVMCFGuard
+    LLVMDWARFLinker
+    LLVMDebugInfoGSYM
+    LLVMExtensions
+    LLVMFileCheck
+    LLVMFrontendOpenACC
+    LLVMFrontendOpenMP
+    LLVMHelloNew
+    LLVMInterfaceStub
+    LLVMJITLink
+    LLVMOrcShared
+    LLVMOrcTargetProcess
+    LLVMRemarks
+    )
+endif()
 
 # These build flags are based off of Alpine, Debian and Gentoo packages
 # optimized for compatibility and reducing build targets
@@ -136,12 +161,13 @@ set(LLVM_CONFIGURE_FLAGS
     -DLLVM_APPEND_VC_REV=OFF
     )
 
-set(LLVM_TARGET_LIBS "")
-foreach(llvm_target IN LISTS LLVM_LIBRARY_TARGETS)
-  list(APPEND LLVM_TARGET_LIBS "<INSTALL_DIR>/lib/lib${llvm_target}.a")
-endforeach(llvm_target)
 
 if(EMBED_BUILD_LLVM)
+  set(LLVM_TARGET_LIBS "")
+  foreach(llvm_target IN LISTS LLVM_LIBRARY_TARGETS)
+    list(APPEND LLVM_TARGET_LIBS "<INSTALL_DIR>/lib/lib${llvm_target}.a")
+  endforeach(llvm_target)
+
   ExternalProject_Add(embedded_llvm
     URL "${LLVM_DOWNLOAD_URL}"
     URL_HASH "${LLVM_URL_CHECKSUM}"
@@ -153,15 +179,25 @@ if(EMBED_BUILD_LLVM)
 
   # Set up build targets and map to embedded paths
   ExternalProject_Get_Property(embedded_llvm INSTALL_DIR)
-  set(EMBEDDED_LLVM_INSTALL_DIR ${INSTALL_DIR})
-  set(LLVM_EMBEDDED_CMAKE_TARGETS "")
+  set(EMBEDDED_LLVM_INSTALL_DIR "${INSTALL_DIR}/lib")
+else()
+  set(EMBEDDED_LLVM_INSTALL_DIR "${EMBED_LLVM_PATH}")
+endif()
 
-  include_directories(SYSTEM ${EMBEDDED_LLVM_INSTALL_DIR}/include)
 
-  foreach(llvm_target IN LISTS LLVM_LIBRARY_TARGETS)
-    list(APPEND LLVM_EMBEDDED_CMAKE_TARGETS ${llvm_target})
-    add_library(${llvm_target} STATIC IMPORTED)
-    set_property(TARGET ${llvm_target} PROPERTY IMPORTED_LOCATION ${EMBEDDED_LLVM_INSTALL_DIR}/lib/lib${llvm_target}.a)
+set(LLVM_EMBEDDED_CMAKE_TARGETS "")
+
+include_directories(SYSTEM ${EMBEDDED_LLVM_INSTALL_DIR}/include)
+
+foreach(llvm_target IN LISTS LLVM_LIBRARY_TARGETS)
+  list(APPEND LLVM_EMBEDDED_CMAKE_TARGETS ${llvm_target})
+  add_library(${llvm_target} STATIC IMPORTED)
+  set_property(
+    TARGET ${llvm_target}
+    PROPERTY
+      IMPORTED_LOCATION "${EMBEDDED_LLVM_INSTALL_DIR}/lib${llvm_target}.a"
+  )
+  if(EMBED_BUILD_LLVM)
     add_dependencies(${llvm_target} embedded_llvm)
-  endforeach(llvm_target)
-endif(EMBED_BUILD_LLVM)
+  endif()
+endforeach(llvm_target)

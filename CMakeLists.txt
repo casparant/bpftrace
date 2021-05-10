@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.13.0)
 project(bpftrace)
 
 # bpftrace version number components.
@@ -29,6 +29,10 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 if(EMBED_BUILD_LLVM)
   set(EMBED_USE_LLVM ON)
+endif()
+
+if(EMBED_USE_LLVM AND NOT EMBED_BUILD_LLVM)
+  set(EMBED_LLVM_PATH "/usr/local/lib")
 endif()
 
 if(EMBED_USE_LLVM OR STATIC_LIBC)
@@ -66,15 +70,6 @@ endif()
 include(CTest)
 
 if(STATIC_LINKING)
-  if(STATIC_LIBC)
-    set(CMAKE_EXE_LINKER_FLAGS "-static")
-  elseif(EMBED_BUILD_LLVM)
-    set(EMBEDDED_LINK_FLAGS "-static-libgcc -static-libstdc++ -Wl,--start-group")
-    set(EMBEDDED_LINK_FLAGS "${EMBEDDED_LINK_FLAGS} -Wl,-Bdynamic -lrt")
-    set(EMBEDDED_LINK_FLAGS "${EMBEDDED_LINK_FLAGS} -Wl,-Bdynamic -lpthread")
-    set(EMBEDDED_LINK_FLAGS "${EMBEDDED_LINK_FLAGS} -Wl,-Bdynamic -ldl -lm")
-    set(EMBEDDED_LINK_FLAGS "${EMBEDDED_LINK_FLAGS} -Wl,-Bstatic -lz")
-  endif(STATIC_LIBC)
   set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
   set(CMAKE_LINK_SEARCH_START_STATIC TRUE)
   set(CMAKE_LINK_SEARCH_END_STATIC TRUE)
@@ -143,7 +138,7 @@ endif()
 include(CheckIncludeFile)
 check_include_file("sys/sdt.h" HAVE_SYSTEMTAP_SYS_SDT_H)
 
-if (EMBED_BUILD_LLVM)
+if (EMBED_USE_LLVM)
   include(embed_llvm)
 else()
   # Some users have multiple versions of llvm installed and would like to specify
@@ -176,7 +171,7 @@ else()
   add_definitions(-DLLVM_ORC_V1)
 endif()
 
-if(EMBED_BUILD_LLVM)
+if(EMBED_USE_LLVM)
   include(embed_clang)
 else()
   find_package(Clang REQUIRED)

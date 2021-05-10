@@ -125,11 +125,6 @@ public:
                             struct symbol *sym,
                             const std::string &path) const;
   std::string resolve_mac_address(const uint8_t *mac_addr) const;
-  std::string map_value_to_str(const SizedType &stype,
-                               std::vector<uint8_t> value,
-                               bool is_per_cpu,
-                               uint32_t div,
-                               const Output &output);
   virtual std::string extract_func_symbols_from_path(const std::string &path) const;
   std::string resolve_probe(uint64_t probe_id) const;
   uint64_t resolve_cgroupid(const std::string &path) const;
@@ -203,6 +198,8 @@ public:
   {
     return procmon_ ? procmon_->pid() : 0;
   }
+  int ncpus_;
+  int online_cpus_;
 
   std::vector<std::tuple<int, int>> seq_printf_ids_;
 
@@ -214,8 +211,6 @@ private:
                         void (*trigger)(void));
   void* ksyms_{nullptr};
   std::map<std::string, std::pair<int, void *>> exe_sym_; // exe -> (pid, cache)
-  int ncpus_;
-  int online_cpus_;
   std::vector<std::string> params_;
 
   std::vector<std::unique_ptr<void, void (*)(void *)>> open_perf_buffers_;
@@ -229,10 +224,6 @@ private:
   void poll_perf_events(int epollfd, bool drain = false);
   int print_map_hist(IMap &map, uint32_t top, uint32_t div);
   int print_map_stats(IMap &map, uint32_t top, uint32_t div);
-  template <typename T>
-  static T reduce_value(const std::vector<uint8_t> &value, int nvalues);
-  static int64_t min_value(const std::vector<uint8_t> &value, int nvalues);
-  static uint64_t max_value(const std::vector<uint8_t> &value, int nvalues);
   static uint64_t read_address_from_output(std::string output);
   std::vector<uint8_t> find_empty_key(IMap &map, size_t size) const;
   bool has_iter_ = false;
