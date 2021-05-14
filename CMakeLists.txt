@@ -4,7 +4,7 @@ project(bpftrace)
 # bpftrace version number components.
 set(bpftrace_VERSION_MAJOR 0)
 set(bpftrace_VERSION_MINOR 12)
-set(bpftrace_VERSION_PATCH 0)
+set(bpftrace_VERSION_PATCH 1)
 
 include(GNUInstallDirs)
 
@@ -75,7 +75,7 @@ if(STATIC_LINKING)
   set(CMAKE_LINK_SEARCH_END_STATIC TRUE)
 endif(STATIC_LINKING)
 
-set(FIND_LIBRARY_USE_LIB64_PATHS TRUE)
+set_property( GLOBAL PROPERTY FIND_LIBRARY_USE_LIB64_PATHS TRUE )
 
 include_directories(SYSTEM ${KERNEL_INCLUDE_DIRS})
 
