@@ -3,7 +3,7 @@ name: Embedded Builds
 on: [push, pull_request]
 jobs:
   llvm_clang:
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         env:
@@ -85,7 +85,6 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: Build docker container
-      if: steps.docker-cache.outputs.cache-hit != 'true'
       run: >
         docker build
         -t bpftrace-embedded-${{ matrix.env['BASE'] }}
