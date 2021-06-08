@@ -131,13 +131,12 @@ std::string MapKey::argument_value(BPFtrace &bpftrace,
     case Type::record:
     {
       std::vector<std::string> elems;
-      for (auto &field : bpftrace.structs_[arg.GetName()].fields)
+      for (auto &field : arg.GetFields())
       {
-        elems.push_back(
-            "." + field.first + "=" +
-            argument_value(bpftrace,
-                           field.second.type,
-                           (const uint8_t *)data + field.second.offset));
+        elems.push_back("." + field.name + "=" +
+                        argument_value(bpftrace,
+                                       field.type,
+                                       (const uint8_t *)data + field.offset));
       }
       return "{" + str_join(elems, ",") + "}";
     }
