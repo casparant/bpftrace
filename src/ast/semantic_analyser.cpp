@@ -1480,154 +1480,129 @@ void SemanticAnalyser::visit(ArrayAccess &arr)
   arr.type.SetAS(type.GetAS());
 }
 
+void SemanticAnalyser::binop_int(Binop &binop)
+{
+  auto get_int_literal = [](const auto expr) -> long {
+    return static_cast<ast::Integer *>(expr)->n;
+  };
+
+  bool lsign = binop.left->type.IsSigned();
+  bool rsign = binop.right->type.IsSigned();
+
+  auto left = binop.left;
+  auto right = binop.right;
+
+  // First check if operand signedness is the same
+  if (lsign != rsign)
+  {
+    // Convert operands to unsigned if it helps make (lsign == rsign)
+    //
+    // For example:
+    //
+    // unsigned int a;
+    // if (a > 10) ...;
+    //
+    // No warning should be emitted as we know that 10 can be
+    // represented as unsigned int
+    if (lsign && !rsign && left->is_literal && get_int_literal(left) >= 0)
+    {
+      lsign = false;
+    }
+    // The reverse (10 < a) should also hold
+    else if (!lsign && rsign && right->is_literal &&
+             get_int_literal(right) >= 0)
+    {
+      rsign = false;
+    }
+    else
+    {
+      switch (binop.op)
+      {
+        case bpftrace::Parser::token::EQ:
+        case bpftrace::Parser::token::NE:
+        case bpftrace::Parser::token::LE:
+        case bpftrace::Parser::token::GE:
+        case bpftrace::Parser::token::LT:
+        case bpftrace::Parser::token::GT:
+          LOG(WARNING, binop.loc, out_)
+              << "comparison of integers of different signs: '" << left->type
+              << "' and '" << right->type << "'"
+              << " can lead to undefined behavior";
+          break;
+        case bpftrace::Parser::token::PLUS:
+        case bpftrace::Parser::token::MINUS:
+        case bpftrace::Parser::token::MUL:
+        case bpftrace::Parser::token::DIV:
+        case bpftrace::Parser::token::MOD:
+          LOG(WARNING, binop.loc, out_)
+              << "arithmetic on integers of different signs: '" << left->type
+              << "' and '" << right->type << "'"
+              << " can lead to undefined behavior";
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  // Next, warn on any operations that require signed division.
+  //
+  // SDIV is not implemented for bpf. See Documentation/bpf/bpf_design_QA
+  // in kernel sources
+  if (binop.op == bpftrace::Parser::token::DIV ||
+      binop.op == bpftrace::Parser::token::MOD)
+  {
+    // Convert operands to unsigned if possible
+    if (lsign && left->is_literal && get_int_literal(left) >= 0)
+      lsign = false;
+    if (rsign && right->is_literal && get_int_literal(right) >= 0)
+      rsign = false;
+
+    // If they're still signed, we have to warn
+    if (lsign || rsign)
+    {
+      LOG(WARNING, binop.loc, out_) << "signed operands for '" << opstr(binop)
+                                    << "' can lead to undefined behavior "
+                                    << "(cast to unsigned to silence warning)";
+    }
+  }
+
+  if (func_ == "str")
+  {
+    // Check if one of the operands is a positional parameter
+    // The other one should be a constant offset
+    auto pos_param = dynamic_cast<PositionalParameter *>(left);
+    auto offset = dynamic_cast<Integer *>(right);
+    if (!pos_param)
+    {
+      pos_param = dynamic_cast<PositionalParameter *>(right);
+      offset = dynamic_cast<Integer *>(left);
+    }
+
+    if (pos_param)
+    {
+      auto len = bpftrace_.get_param(pos_param->n, true).length();
+      if (!offset || binop.op != bpftrace::Parser::token::PLUS ||
+          offset->n < 0 || (size_t)offset->n > len)
+      {
+        LOG(ERROR, binop.loc + binop.right->loc, err_)
+            << "only addition of a single constant less or equal to the "
+            << "length of $" << pos_param->n << " (which is " << len << ")"
+            << " is allowed inside str()";
+      }
+    }
+  }
+}
+
 void SemanticAnalyser::visit(Binop &binop)
 {
   binop.left->accept(*this);
   binop.right->accept(*this);
-  Type &lhs = binop.left->type.type;
-  Type &rhs = binop.right->type.type;
+
   auto &lht = binop.left->type;
   auto &rht = binop.right->type;
   bool lsign = binop.left->type.IsSigned();
   bool rsign = binop.right->type.IsSigned();
-
-  if (is_final_pass()) {
-    if ((lhs != rhs) && !(lht.IsPtrTy() && rht.IsIntegerTy()) &&
-        !(lht.IsIntegerTy() && rht.IsPtrTy()))
-    {
-      LOG(ERROR, binop.left->loc + binop.right->loc, err_)
-          << "Type mismatch for '" << opstr(binop) << "': comparing '" << lhs
-          << "' with '" << rhs << "'";
-    }
-    // Follow what C does
-    else if (lhs == Type::integer && rhs == Type::integer) {
-      auto get_int_literal = [](const auto expr) -> long {
-        return static_cast<ast::Integer*>(expr)->n;
-      };
-      auto left = binop.left;
-      auto right = binop.right;
-
-      // First check if operand signedness is the same
-      if (lsign != rsign) {
-        // Convert operands to unsigned if it helps make (lsign == rsign)
-        //
-        // For example:
-        //
-        // unsigned int a;
-        // if (a > 10) ...;
-        //
-        // No warning should be emitted as we know that 10 can be
-        // represented as unsigned int
-        if (lsign && !rsign && left->is_literal && get_int_literal(left) >= 0) {
-          lsign = false;
-        }
-        // The reverse (10 < a) should also hold
-        else if (!lsign && rsign && right->is_literal && get_int_literal(right) >= 0) {
-          rsign = false;
-        }
-        else {
-          switch (binop.op) {
-          case bpftrace::Parser::token::EQ:
-          case bpftrace::Parser::token::NE:
-          case bpftrace::Parser::token::LE:
-          case bpftrace::Parser::token::GE:
-          case bpftrace::Parser::token::LT:
-          case bpftrace::Parser::token::GT:
-            LOG(WARNING, binop.loc, out_)
-                << "comparison of integers of different signs: '" << left->type
-                << "' and '" << right->type << "'"
-                << " can lead to undefined behavior";
-            break;
-          case bpftrace::Parser::token::PLUS:
-          case bpftrace::Parser::token::MINUS:
-          case bpftrace::Parser::token::MUL:
-          case bpftrace::Parser::token::DIV:
-          case bpftrace::Parser::token::MOD:
-            LOG(WARNING, binop.loc, out_)
-                << "arithmetic on integers of different signs: '" << left->type
-                << "' and '" << right->type << "'"
-                << " can lead to undefined behavior";
-            break;
-          default:
-            break;
-          }
-        }
-      }
-
-      // Next, warn on any operations that require signed division.
-      //
-      // SDIV is not implemented for bpf. See Documentation/bpf/bpf_design_QA
-      // in kernel sources
-      if (binop.op == bpftrace::Parser::token::DIV ||
-          binop.op == bpftrace::Parser::token::MOD) {
-        // Convert operands to unsigned if possible
-        if (lsign && left->is_literal && get_int_literal(left) >= 0)
-          lsign = false;
-        if (rsign && right->is_literal && get_int_literal(right) >= 0)
-          rsign = false;
-
-        // If they're still signed, we have to warn
-        if (lsign || rsign) {
-          LOG(WARNING, binop.loc, out_)
-              << "signed operands for '" << opstr(binop)
-              << "' can lead to undefined behavior "
-              << "(cast to unsigned to silence warning)";
-        }
-      }
-
-      if (func_ == "str")
-      {
-        // Check if one of the operands is a positional parameter
-        // The other one should be a constant offset
-        auto pos_param = dynamic_cast<PositionalParameter *>(left);
-        auto offset = dynamic_cast<Integer *>(right);
-        if (!pos_param)
-        {
-          pos_param = dynamic_cast<PositionalParameter *>(right);
-          offset = dynamic_cast<Integer *>(left);
-        }
-
-        if (pos_param)
-        {
-          auto len = bpftrace_.get_param(pos_param->n, true).length();
-          if (!offset || binop.op != bpftrace::Parser::token::PLUS ||
-              offset->n < 0 || (size_t)offset->n > len)
-          {
-            LOG(ERROR, binop.loc + binop.right->loc, err_)
-                << "only addition of a single constant less or equal to the "
-                << "length of $" << pos_param->n << " (which is " << len << ")"
-                << " is allowed inside str()";
-          }
-        }
-      }
-    }
-    // Also allow combination like reg("sp") + 8
-    else if (!(lhs == Type::integer && rhs == Type::integer) &&
-             binop.op != Parser::token::EQ && binop.op != Parser::token::NE &&
-             !(lht.IsPtrTy() && rht.IsIntegerTy()) &&
-             !(lht.IsIntegerTy() && rht.IsPtrTy()))
-    {
-      LOG(ERROR, binop.loc, err_)
-          << "The " << opstr(binop)
-          << " operator can not be used on expressions of types " << lhs << ", "
-          << rhs;
-    }
-    else if (binop.op == Parser::token::EQ &&
-             ((!binop.left->is_literal && binop.right->is_literal) ||
-              (binop.left->is_literal && !binop.right->is_literal)))
-    {
-      auto *lit = binop.left->is_literal ? binop.left : binop.right;
-      auto *str = lit == binop.left ? binop.right : binop.left;
-      auto lit_len = bpftrace_.get_string_literal(lit).size();
-      auto str_len = str->type.GetNumElements();
-      if (lit_len > str_len)
-      {
-        LOG(WARNING, binop.left->loc + binop.loc + binop.right->loc, out_)
-            << "The literal is longer than the variable string (size="
-            << str_len << "), condition will always be false";
-      }
-    }
-  }
 
   bool is_signed = lsign && rsign;
   switch (binop.op) {
@@ -1662,6 +1637,51 @@ void SemanticAnalyser::visit(Binop &binop)
   {
     // In case rhs is none, then this triggers warning in selectProbeReadHelper.
     binop.type.SetAS(addr_rhs);
+  }
+
+  if (!is_final_pass())
+  {
+    return;
+  }
+
+  if (lht.IsIntTy() && rht.IsIntTy())
+  {
+    binop_int(binop);
+  }
+  else if ((lht.IsPtrTy() && rht.IsIntTy()) || (lht.IsIntTy() && rht.IsPtrTy()))
+  {
+    // noop
+  }
+  // Compare type here, not the sized type as we it needs to work on strings of
+  // different lengths
+  else if (lht.type != rht.type)
+  {
+    LOG(ERROR, binop.left->loc + binop.right->loc, err_)
+        << "Type mismatch for '" << opstr(binop) << "': comparing '" << lht
+        << "' with '" << rht << "'";
+  }
+  // Also allow combination like reg("sp") + 8
+  else if (binop.op != Parser::token::EQ && binop.op != Parser::token::NE)
+  {
+    LOG(ERROR, binop.loc, err_)
+        << "The " << opstr(binop)
+        << " operator can not be used on expressions of types " << lht << ", "
+        << rht;
+  }
+  else if (binop.op == Parser::token::EQ &&
+           ((!binop.left->is_literal && binop.right->is_literal) ||
+            (binop.left->is_literal && !binop.right->is_literal)))
+  {
+    auto *lit = binop.left->is_literal ? binop.left : binop.right;
+    auto *str = lit == binop.left ? binop.right : binop.left;
+    auto lit_len = bpftrace_.get_string_literal(lit).size();
+    auto str_len = str->type.GetNumElements();
+    if (lit_len > str_len)
+    {
+      LOG(WARNING, binop.left->loc + binop.loc + binop.right->loc, out_)
+          << "The literal is longer than the variable string (size=" << str_len
+          << "), condition will always be false";
+    }
   }
 }
 
