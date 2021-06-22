@@ -22,6 +22,7 @@ add_library(libbpftrace
   clang_parser.cpp
   disasm.cpp
   driver.cpp
+  imap.cpp
   lockdown.cpp
   log.cpp
   map.cpp
@@ -32,6 +33,7 @@ add_library(libbpftrace
   printf.cpp
   relocator.cpp
   resolve_cgroupid.cpp
+  required_resources.cpp
   struct.cpp
   tracepoint_format_parser.cpp
   types.cpp
