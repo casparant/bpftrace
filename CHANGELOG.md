@@ -9,6 +9,22 @@ and this project adheres to
 ## Unreleased
 
 #### Added
+
+#### Changed
+
+#### Deprecated
+
+#### Removed
+
+#### Fixed
+
+#### Tools
+
+#### Documentation
+
+## [0.13.0] 2021-07-01
+
+#### Added
 - Warn if attaching a kprobe to a non-traceable function
   - [#1835](https://github.com/iovisor/bpftrace/pull/1835)
 - Support for `-k[k]` and `elapsed` in `iter` probes
