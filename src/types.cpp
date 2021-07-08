@@ -96,6 +96,13 @@ bool SizedType::IsEqual(const SizedType &t) const
   if (IsPtrTy())
     return *t.GetPointeeTy() == *GetPointeeTy();
 
+  if (IsArrayTy())
+    return t.GetNumElements() == GetNumElements() &&
+           *t.GetElementTy() == *GetElementTy();
+
+  if (IsTupleTy())
+    return *t.GetStruct() == *GetStruct();
+
   return type == t.type && GetSize() == t.GetSize() &&
          is_signed_ == t.is_signed_;
 }
@@ -356,7 +363,7 @@ SizedType CreatePointer(const SizedType &pointee_type, AddrSpace as)
   return ty;
 }
 
-SizedType CreateRecord(const std::string &name, std::shared_ptr<Struct> record)
+SizedType CreateRecord(const std::string &name, Struct *record)
 {
   auto ty = SizedType(Type::record, record ? record->size : 0);
   ty.name_ = name;
@@ -448,11 +455,10 @@ SizedType CreateTimestamp()
   return SizedType(Type::timestamp, 16);
 }
 
-SizedType CreateTuple(const std::vector<SizedType> &fields)
+SizedType CreateTuple(Struct *tuple)
 {
-  auto s = SizedType(Type::tuple, 0);
-  s.inner_struct_ = Struct::CreateTuple(fields);
-  s.size_ = s.inner_struct_->size;
+  auto s = SizedType(Type::tuple, tuple->size);
+  s.inner_struct_ = tuple;
   return s;
 }
 
@@ -530,8 +536,65 @@ const Field &SizedType::GetField(const std::string &name) const
 
 const Struct *SizedType::GetStruct() const
 {
-  assert(IsRecordTy());
-  return inner_struct_.get();
+  assert(IsRecordTy() || IsTupleTy());
+  return inner_struct_;
 }
 
 } // namespace bpftrace
+
+namespace std {
+size_t hash<bpftrace::SizedType>::operator()(
+    const bpftrace::SizedType &type) const
+{
+  auto hash = std::hash<unsigned>()(static_cast<unsigned>(type.type));
+  bpftrace::hash_combine(hash, type.GetSize());
+
+  switch (type.type)
+  {
+    case bpftrace::Type::integer:
+      bpftrace::hash_combine(hash, type.IsSigned());
+      break;
+    case bpftrace::Type::pointer:
+      bpftrace::hash_combine(hash, *type.GetPointeeTy());
+      break;
+    case bpftrace::Type::record:
+      bpftrace::hash_combine(hash, type.GetName());
+      break;
+    case bpftrace::Type::kstack:
+    case bpftrace::Type::ustack:
+      bpftrace::hash_combine(hash, type.stack_type);
+      break;
+    case bpftrace::Type::array:
+      bpftrace::hash_combine(hash, *type.GetElementTy());
+      bpftrace::hash_combine(hash, type.GetNumElements());
+      break;
+    case bpftrace::Type::tuple:
+      bpftrace::hash_combine(hash, *type.GetStruct());
+      break;
+    // No default case (explicitly skip all remaining types instead) to get
+    // a compiler warning when we add a new type
+    case bpftrace::Type::none:
+    case bpftrace::Type::hist:
+    case bpftrace::Type::lhist:
+    case bpftrace::Type::count:
+    case bpftrace::Type::sum:
+    case bpftrace::Type::min:
+    case bpftrace::Type::max:
+    case bpftrace::Type::avg:
+    case bpftrace::Type::stats:
+    case bpftrace::Type::string:
+    case bpftrace::Type::ksym:
+    case bpftrace::Type::usym:
+    case bpftrace::Type::probe:
+    case bpftrace::Type::username:
+    case bpftrace::Type::inet:
+    case bpftrace::Type::stack_mode:
+    case bpftrace::Type::buffer:
+    case bpftrace::Type::timestamp:
+    case bpftrace::Type::mac_address:
+      break;
+  }
+
+  return hash;
+}
+} // namespace std

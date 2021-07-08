@@ -1,6 +1,7 @@
 #pragma once
 
 #include "types.h"
+#include "utils.h"
 #include <map>
 
 namespace bpftrace {
@@ -34,6 +35,13 @@ struct Field
   // The last 2 bytes is the offset from the start of the tracepoint struct
   // where the data begins.
   bool is_data_loc = false;
+
+  bool operator==(const Field &rhs) const
+  {
+    return name == rhs.name && type == rhs.type && offset == rhs.offset &&
+           is_bitfield == rhs.is_bitfield && bitfield == rhs.bitfield &&
+           is_data_loc == rhs.is_data_loc;
+  }
 };
 
 using Fields = std::vector<Field>;
@@ -60,20 +68,69 @@ struct Struct
 
   static std::unique_ptr<Struct> CreateTuple(std::vector<SizedType> fields);
   void Dump(std::ostream &os);
+
+  bool operator==(const Struct &rhs) const
+  {
+    return size == rhs.size && align == rhs.align && padded == rhs.padded &&
+           fields == rhs.fields;
+  }
 };
 
 std::ostream &operator<<(std::ostream &os, const Fields &t);
 
+} // namespace bpftrace
+
+namespace std {
+template <>
+struct hash<bpftrace::Struct>
+{
+  size_t operator()(const bpftrace::Struct &s) const
+  {
+    size_t hash = std::hash<int>()(s.size);
+    for (auto &field : s.fields)
+      bpftrace::hash_combine(hash, field.type);
+    return hash;
+  }
+};
+
+template <>
+struct hash<unique_ptr<bpftrace::Struct>>
+{
+  size_t operator()(const std::unique_ptr<bpftrace::Struct> &s_ptr) const
+  {
+    return std::hash<bpftrace::Struct>()(*s_ptr);
+  }
+};
+
+template <>
+struct equal_to<unique_ptr<bpftrace::Struct>>
+{
+  bool operator()(const std::unique_ptr<bpftrace::Struct> &lhs,
+                  const std::unique_ptr<bpftrace::Struct> &rhs) const
+  {
+    return *lhs == *rhs;
+  }
+};
+} // namespace std
+
+namespace bpftrace {
+
 class StructManager
 {
 public:
+  // struct map manipulation
   void Add(const std::string &name, size_t size);
-  std::shared_ptr<Struct> Lookup(const std::string &name) const;
-  std::shared_ptr<Struct> LookupOrAdd(const std::string &name, size_t size);
+  Struct *Lookup(const std::string &name) const;
+  Struct *LookupOrAdd(const std::string &name, size_t size);
   bool Has(const std::string &name) const;
 
+  // tuples set manipulation
+  Struct *AddTuple(std::vector<SizedType> fields);
+  size_t GetTuplesCnt() const;
+
 private:
-  std::map<std::string, std::shared_ptr<Struct>> struct_map_;
+  std::map<std::string, std::unique_ptr<Struct>> struct_map_;
+  std::unordered_set<std::unique_ptr<Struct>> tuples_;
 };
 
 } // namespace bpftrace

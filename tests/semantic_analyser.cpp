@@ -935,6 +935,13 @@ TEST(semantic_analyser, array_in_map)
        "    @a[1] = ((struct MyStruct *)arg0)->y; "
        "}",
        1);
+  test("#include <stdint.h>\n"
+       "struct MyStruct { uint8_t x[8]; uint32_t y[2]; }"
+       "kprobe:f { "
+       "    @a[0] = ((struct MyStruct *)arg0)->x; "
+       "    @a[1] = ((struct MyStruct *)arg0)->y; "
+       "}",
+       1);
 }
 
 TEST(semantic_analyser, array_as_map_key)
@@ -2091,6 +2098,8 @@ TEST(semantic_analyser, tuple)
   test(R"_(BEGIN { $t = (1, 2); $t = (4, "other"); })_", 10);
   test(R"_(BEGIN { $t = (1, 2); $t = 5; })_", 1);
   test(R"_(BEGIN { $t = (1, count()) })_", 1);
+  test(R"_(BEGIN { $t = ((int32)1, (int64)2); $t = ((int64)1, (int32)2); })_",
+       10);
 
   test(R"_(BEGIN { @t = (1, 2); @t = (4, "other"); })_", 1);
   test(R"_(BEGIN { @t = (1, 2); @t = 5; })_", 1);
@@ -2116,8 +2125,13 @@ TEST(semantic_analyser, tuple_assign_var)
 {
   BPFtrace bpftrace;
   Driver driver(bpftrace);
-  SizedType ty = CreateTuple({ CreateInt64(), CreateString(64) });
-  test(driver, R"_(BEGIN { $t = (1, "str"); $t = (4, "other"); })_", 0);
+  SizedType ty = CreateTuple(
+      bpftrace.structs.AddTuple({ CreateInt64(), CreateString(64) }));
+  test(bpftrace,
+       true,
+       driver,
+       R"_(BEGIN { $t = (1, "str"); $t = (4, "other"); })_",
+       0);
 
   auto &stmts = driver.root_->probes->at(0)->stmts;
 
@@ -2136,20 +2150,24 @@ TEST(semantic_analyser, tuple_assign_map)
   BPFtrace bpftrace;
   Driver driver(bpftrace);
   SizedType ty;
-  test(driver, R"_(BEGIN { @ = (1, 3, 3, 7); @ = (0, 0, 0, 0); })_", 0);
+  test(bpftrace,
+       true,
+       driver,
+       R"_(BEGIN { @ = (1, 3, 3, 7); @ = (0, 0, 0, 0); })_",
+       0);
 
   auto &stmts = driver.root_->probes->at(0)->stmts;
 
   // $t = (1, 3, 3, 7);
   auto assignment = static_cast<ast::AssignMapStatement *>(stmts->at(0));
-  ty = CreateTuple(
-      { CreateInt64(), CreateUInt64(), CreateUInt64(), CreateUInt64() });
+  ty = CreateTuple(bpftrace.structs.AddTuple(
+      { CreateInt64(), CreateInt64(), CreateInt64(), CreateInt64() }));
   EXPECT_EQ(ty, assignment->map->type);
 
   // $t = (0, 0, 0, 0);
   assignment = static_cast<ast::AssignMapStatement *>(stmts->at(1));
-  ty = CreateTuple(
-      { CreateInt64(), CreateInt64(), CreateInt64(), CreateInt64() });
+  ty = CreateTuple(bpftrace.structs.AddTuple(
+      { CreateInt64(), CreateInt64(), CreateInt64(), CreateInt64() }));
   EXPECT_EQ(ty, assignment->map->type);
 }
 
@@ -2158,15 +2176,25 @@ TEST(semantic_analyser, tuple_nested)
 {
   BPFtrace bpftrace;
   Driver driver(bpftrace);
-  SizedType ty_inner = CreateTuple({ CreateInt64(), CreateInt64() });
-  SizedType ty = CreateTuple({ CreateInt64(), ty_inner });
-  test(driver, R"_(BEGIN { $t = (1,(1,2)); })_", 0);
+  SizedType ty_inner = CreateTuple(
+      bpftrace.structs.AddTuple({ CreateInt64(), CreateInt64() }));
+  SizedType ty = CreateTuple(
+      bpftrace.structs.AddTuple({ CreateInt64(), ty_inner }));
+  test(bpftrace, true, driver, R"_(BEGIN { $t = (1,(1,2)); })_", 0);
 
   auto &stmts = driver.root_->probes->at(0)->stmts;
 
   // $t = (1, "str");
   auto assignment = static_cast<ast::AssignVarStatement *>(stmts->at(0));
   EXPECT_EQ(ty, assignment->var->type);
+}
+
+TEST(semantic_analyser, tuple_types_unique)
+{
+  auto bpftrace = get_mock_bpftrace();
+  test(*bpftrace, R"_(BEGIN { $t = (1, "str"); $t = (4, "other"); })_", 0);
+
+  EXPECT_EQ(bpftrace->structs.GetTuplesCnt(), 1);
 }
 
 TEST(semantic_analyser, multi_pass_type_inference_zero_size_int)
