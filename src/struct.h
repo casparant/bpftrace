@@ -1,8 +1,12 @@
 #pragma once
 
+#include <map>
+#include <memory>
+
+#include <cereal/access.hpp>
+
 #include "types.h"
 #include "utils.h"
-#include <map>
 
 namespace bpftrace {
 
@@ -17,6 +21,14 @@ struct Bitfield
   size_t access_rshift;
   // Then logical AND `mask` to mask out everything but this bitfield
   uint64_t mask;
+
+private:
+  friend class cereal::access;
+  template <typename Archive>
+  void serialize(Archive &archive)
+  {
+    archive(read_bytes, access_rshift, mask);
+  }
 };
 
 struct Field
@@ -42,17 +54,26 @@ struct Field
            is_bitfield == rhs.is_bitfield && bitfield == rhs.bitfield &&
            is_data_loc == rhs.is_data_loc;
   }
+
+private:
+  friend class cereal::access;
+  template <typename Archive>
+  void serialize(Archive &archive)
+  {
+    archive(name, type, offset, is_bitfield, bitfield, is_data_loc);
+  }
 };
 
 using Fields = std::vector<Field>;
 
 struct Struct
 {
-  int size; // in bytes
+  int size = -1; // in bytes
   int align = 1; // in bytes, used for tuples only
   bool padded = false;
   Fields fields;
 
+  Struct() = default;
   explicit Struct(int size) : size(size)
   {
   }
@@ -74,6 +95,14 @@ struct Struct
     return size == rhs.size && align == rhs.align && padded == rhs.padded &&
            fields == rhs.fields;
   }
+
+private:
+  friend class cereal::access;
+  template <typename Archive>
+  void serialize(Archive &archive)
+  {
+    archive(size, align, padded, fields);
+  }
 };
 
 std::ostream &operator<<(std::ostream &os, const Fields &t);
@@ -94,19 +123,19 @@ struct hash<bpftrace::Struct>
 };
 
 template <>
-struct hash<unique_ptr<bpftrace::Struct>>
+struct hash<shared_ptr<bpftrace::Struct>>
 {
-  size_t operator()(const std::unique_ptr<bpftrace::Struct> &s_ptr) const
+  size_t operator()(const std::shared_ptr<bpftrace::Struct> &s_ptr) const
   {
     return std::hash<bpftrace::Struct>()(*s_ptr);
   }
 };
 
 template <>
-struct equal_to<unique_ptr<bpftrace::Struct>>
+struct equal_to<shared_ptr<bpftrace::Struct>>
 {
-  bool operator()(const std::unique_ptr<bpftrace::Struct> &lhs,
-                  const std::unique_ptr<bpftrace::Struct> &rhs) const
+  bool operator()(const std::shared_ptr<bpftrace::Struct> &lhs,
+                  const std::shared_ptr<bpftrace::Struct> &rhs) const
   {
     return *lhs == *rhs;
   }
@@ -120,17 +149,17 @@ class StructManager
 public:
   // struct map manipulation
   void Add(const std::string &name, size_t size);
-  Struct *Lookup(const std::string &name) const;
-  Struct *LookupOrAdd(const std::string &name, size_t size);
+  std::weak_ptr<Struct> Lookup(const std::string &name) const;
+  std::weak_ptr<Struct> LookupOrAdd(const std::string &name, size_t size);
   bool Has(const std::string &name) const;
 
   // tuples set manipulation
-  Struct *AddTuple(std::vector<SizedType> fields);
+  std::weak_ptr<Struct> AddTuple(std::vector<SizedType> fields);
   size_t GetTuplesCnt() const;
 
 private:
-  std::map<std::string, std::unique_ptr<Struct>> struct_map_;
-  std::unordered_set<std::unique_ptr<Struct>> tuples_;
+  std::map<std::string, std::shared_ptr<Struct>> struct_map_;
+  std::unordered_set<std::shared_ptr<Struct>> tuples_;
 };
 
 } // namespace bpftrace
