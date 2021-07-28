@@ -7,6 +7,8 @@
 %define api.token.constructor
 %define api.value.type variant
 %define parse.assert
+%define parse.trace
+%expect 5
 
 %define parse.error verbose
 
@@ -156,7 +158,7 @@ void yyerror(bpftrace::Driver &driver, const char *s);
 %%
 
 program:
-                c_definitions probes { driver.root_ = new ast::Program($1, $2); }
+                c_definitions probes END { driver.root_ = new ast::Program($1, $2); }
                 ;
 
 c_definitions:
