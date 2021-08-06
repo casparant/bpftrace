@@ -236,7 +236,7 @@ REQUIRES ./testprogs/usdt_semaphore_test should_not_skip
 REQUIRES_FEATURE uprobe_refcount
 
 NAME "usdt probes - file based semaphore activation multi process"
-RUN {{BPFTRACE}} -v runtime/scripts/usdt_file_activation_multiprocess.bt --usdt-file-activation
+RUN {{BPFTRACE}} runtime/scripts/usdt_file_activation_multiprocess.bt --usdt-file-activation
 EXPECT found 2 processes
 TIMEOUT 5
 BEFORE ./testprogs/usdt_semaphore_test & ./testprogs/usdt_semaphore_test
@@ -301,7 +301,7 @@ REQUIRES ./testprogs/usdt_args should_not_skip
 # attach to all of them
 NAME "usdt duplicated markers"
 RUN {{BPFTRACE}} -e 'usdt:./testprogs/usdt_inlined:tracetest:testprobe { printf("%d\n", arg1); @a += 1; if (@a >= 2) {exit();} }' -c ./testprogs/usdt_inlined
-EXPECT Attaching 2 probes.*\s999\s*100
+EXPECT Attaching 2 probes.*\n.*\s999\s*100
 TIMEOUT 1
 REQUIRES ./testprogs/usdt_inlined should_not_skip
 
