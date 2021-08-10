@@ -14,12 +14,12 @@ entry:
   %1 = bitcast i64* %"$a" to i8*
   call void @llvm.lifetime.start.p0i8(i64 -1, i8* %1)
   store i64 0, i64* %"$a", align 8
-  store i64 1, i64* %"$a", align 8
+  store i64 0, i64* %"$a", align 8
   br label %while_cond
 
 while_cond:                                       ; preds = %while_body, %entry
   %2 = load i64, i64* %"$a", align 8
-  %3 = icmp sle i64 %2, 150
+  %3 = icmp sle i64 %2, 10
   %4 = zext i1 %3 to i64
   %true_cond = icmp ne i64 %4, 0
   br i1 %true_cond, label %while_body, label %while_end, !llvm.loop !0

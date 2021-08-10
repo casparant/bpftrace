@@ -12,10 +12,10 @@
 #include "map.h"
 #include "visitors.h"
 
-#include <llvm/Support/raw_os_ostream.h>
 #include <llvm/ExecutionEngine/MCJIT.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Module.h>
+#include <llvm/Support/raw_os_ostream.h>
 
 namespace bpftrace {
 namespace ast {
@@ -122,6 +122,7 @@ private:
 
   Function *createLog2Function();
   Function *createLinearFunction();
+  MDNode *createLoopMetadata();
 
   void binop_string(Binop &binop);
   void binop_buf(Binop &binop);
@@ -205,6 +206,7 @@ private:
 
   Function *linear_func_ = nullptr;
   Function *log2_func_ = nullptr;
+  MDNode *loop_metadata_ = nullptr;
 
   size_t getStructSize(StructType *s)
   {

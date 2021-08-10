@@ -13,18 +13,20 @@
 #include <unistd.h>
 
 #include "ast/bpforc/bpforc.h"
-#include "ast/field_analyser.h"
-#include "ast/node_counter.h"
 #include "ast/pass_manager.h"
-#include "ast/portability_analyser.h"
-#include "ast/resource_analyser.h"
-#include "ast/semantic_analyser.h"
+
+#include "ast/passes/codegen_llvm.h"
+#include "ast/passes/field_analyser.h"
+#include "ast/passes/node_counter.h"
+#include "ast/passes/portability_analyser.h"
+#include "ast/passes/resource_analyser.h"
+#include "ast/passes/semantic_analyser.h"
+
 #include "bpffeature.h"
 #include "bpftrace.h"
 #include "build_info.h"
 #include "child.h"
 #include "clang_parser.h"
-#include "codegen_llvm.h"
 #include "driver.h"
 #include "lockdown.h"
 #include "log.h"
@@ -803,9 +805,12 @@ int main(int argc, char* argv[])
       pm = CreateAotPM(aot);
       break;
   }
-  ast_root = pm.Run(std::move(ast_root), ctx);
-  if (!ast_root)
+
+  auto pmresult = pm.Run(std::move(ast_root), ctx);
+  if (!pmresult.Ok())
     return 1;
+
+  ast_root = std::unique_ptr<ast::Node>(pmresult.Root());
 
   if (!bpftrace.cmd_.empty())
   {

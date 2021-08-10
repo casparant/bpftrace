@@ -1,30 +1,29 @@
 add_library(ast
   ast.cpp
   attachpoint_parser.cpp
-  codegen_llvm.cpp
   fake_map.cpp
-  field_analyser.cpp
   int_parser.cpp
   irbuilderbpf.cpp
   pass_manager.cpp
-  portability_analyser.cpp
-  printer.cpp
-  resource_analyser.cpp
-  semantic_analyser.cpp
   signal.cpp
   visitors.cpp
+
+  passes/field_analyser.cpp
+  passes/portability_analyser.cpp
+  passes/printer.cpp
+  passes/resource_analyser.cpp
+  passes/semantic_analyser.cpp
+  passes/codegen_llvm.cpp
 )
 
 target_include_directories(ast PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_include_directories(ast PUBLIC ${CMAKE_SOURCE_DIR}/src/ast)
 target_include_directories(ast PUBLIC ${CMAKE_BINARY_DIR})
-target_link_libraries(ast arch bpforc)
+target_link_libraries(ast arch bpforc parser)
 
 if (HAVE_BCC_KFUNC)
   target_compile_definitions(ast PRIVATE HAVE_BCC_KFUNC)
 endif(HAVE_BCC_KFUNC)
-
-add_dependencies(ast parser)
 
 if (STATIC_LINKING)
   set(clang_libs
