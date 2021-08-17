@@ -74,18 +74,18 @@ std::variant<T, std::string> _parse_exp(const std::string &coeff,
 {
   std::stringstream errmsg;
   auto maybe_coeff = _parse_int<T>(coeff, 10);
-  if (auto err = std::get_if<std::string>(&maybe_coeff))
+  if (std::string *err = std::get_if<std::string>(&maybe_coeff))
   {
     errmsg << "Coefficient part of scientific literal is not a valid number: "
-           << coeff << ": " << err;
+           << coeff << ": " << *err;
     return errmsg.str();
   }
 
   auto maybe_exp = _parse_int<T>(exp, 10);
-  if (auto err = std::get_if<std::string>(&maybe_exp))
+  if (std::string *err = std::get_if<std::string>(&maybe_exp))
   {
     errmsg << "Exponent part of scientific literal is not a valid number: "
-           << exp << ": " << err;
+           << exp << ": " << *err;
     return errmsg.str();
   }
 
@@ -123,17 +123,26 @@ T to_int(const std::string &num, int base)
 
   std::variant<T, std::string> res;
 
-  auto pos = n.find_first_of("eE");
-  if (pos != std::string::npos)
-  {
-    res = _parse_exp<T>(n.substr(0, pos), n.substr(pos + 1, std::string::npos));
-  }
-  else
+  // If hex
+  if ((n.rfind("0x", 0) == 0) || (n.rfind("0X", 0) == 0))
   {
     res = _parse_int<T>(n, base);
   }
+  else
+  {
+    auto pos = n.find_first_of("eE");
+    if (pos != std::string::npos)
+    {
+      res = _parse_exp<T>(n.substr(0, pos),
+                          n.substr(pos + 1, std::string::npos));
+    }
+    else
+    {
+      res = _parse_int<T>(n, base);
+    }
+  }
 
-  if (auto err = std::get_if<std::string>(&res))
+  if (std::string *err = std::get_if<std::string>(&res))
     throw std::invalid_argument(*err);
   return std::get<T>(res);
 }
