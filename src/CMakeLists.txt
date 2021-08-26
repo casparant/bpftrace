@@ -23,6 +23,7 @@ add_library(libbpftrace
   clang_parser.cpp
   disasm.cpp
   driver.cpp
+  dwarf_parser.cpp
   imap.cpp
   lockdown.cpp
   log.cpp
@@ -148,6 +149,16 @@ if(STATIC_LINKING)
 else()
   target_link_libraries(libbpftrace ${LIBELF_LIBRARIES})
 endif(STATIC_LINKING)
+
+if (LIBDW_FOUND)
+  if(STATIC_LINKING)
+    add_library(LIBDW STATIC IMPORTED)
+    set_property(TARGET LIBDW PROPERTY IMPORTED_LOCATION ${LIBDW_LIBRARIES})
+    target_link_libraries(libbpftrace LIBDW)
+  else()
+    target_link_libraries(libbpftrace ${LIBDW_LIBRARIES})
+  endif()
+endif()
 
 # Support for std::filesystem
 # GCC version <9 and Clang (all versions) require -lstdc++fs
