@@ -13,19 +13,16 @@ else()
   endif ()
 endif()
 
-add_library(libbpftrace
+add_library(runtime
   attached_probe.cpp
   bpffeature.cpp
   bpftrace.cpp
   btf.cpp
-  build_info.cpp
   child.cpp
-  clang_parser.cpp
   disasm.cpp
-  driver.cpp
   dwarf_parser.cpp
+  fake_map.cpp
   imap.cpp
-  lockdown.cpp
   log.cpp
   map.cpp
   mapkey.cpp
@@ -37,11 +34,20 @@ add_library(libbpftrace
   resolve_cgroupid.cpp
   required_resources.cpp
   struct.cpp
-  tracepoint_format_parser.cpp
   types.cpp
   usdt.cpp
   utils.cpp
   ${BFD_DISASM_SRC}
+)
+# Ensure flex+bison outputs are built first
+add_dependencies(runtime parser)
+
+add_library(libbpftrace
+  build_info.cpp
+  clang_parser.cpp
+  driver.cpp
+  lockdown.cpp
+  tracepoint_format_parser.cpp
 )
 # So it's not "liblibbpftrace"
 set_target_properties(libbpftrace PROPERTIES PREFIX "")
@@ -79,7 +85,7 @@ endif()
 set(KERNEL_HEADERS_DIR "" CACHE PATH "Hard-code kernel headers directory")
 if (KERNEL_HEADERS_DIR)
   MESSAGE(STATUS "Using KERNEL_HEADERS_DIR=${KERNEL_HEADERS_DIR}")
-  target_compile_definitions(libbpftrace PUBLIC KERNEL_HEADERS_DIR="${KERNEL_HEADERS_DIR}")
+  target_compile_definitions(runtime PUBLIC KERNEL_HEADERS_DIR="${KERNEL_HEADERS_DIR}")
 endif()
 
 execute_process(
@@ -99,6 +105,10 @@ endif()
 
 add_definitions("-DBPFTRACE_VERSION=\"${BPFTRACE_VERSION}\"")
 
+target_include_directories(runtime PRIVATE ${CMAKE_BINARY_DIR})
+target_include_directories(runtime PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(runtime PRIVATE ${CMAKE_SOURCE_DIR}/src/ast)
+target_compile_definitions(runtime PRIVATE ${BPFTRACE_FLAGS})
 target_compile_definitions(libbpftrace PRIVATE ${BPFTRACE_FLAGS})
 
 # Linking
@@ -111,58 +121,64 @@ if(STATIC_LINKING)
 endif(STATIC_LINKING)
 
 
-target_link_libraries(libbpftrace parser resources ast arch)
+target_link_libraries(libbpftrace parser resources runtime aot ast arch)
 
 if (LIBBPF_BTF_DUMP_FOUND)
-  target_include_directories(libbpftrace PUBLIC ${LIBBPF_INCLUDE_DIRS})
-  target_link_libraries(libbpftrace ${LIBBPF_LIBRARIES})
+  target_include_directories(runtime PUBLIC ${LIBBPF_INCLUDE_DIRS})
+  target_link_libraries(runtime ${LIBBPF_LIBRARIES})
 endif(LIBBPF_BTF_DUMP_FOUND)
 
 if(HAVE_BFD_DISASM)
   if(STATIC_LINKING)
     add_library(LIBBFD STATIC IMPORTED)
     set_property(TARGET LIBBFD PROPERTY IMPORTED_LOCATION ${LIBBFD_LIBRARIES})
-    target_link_libraries(libbpftrace LIBBFD)
+    target_link_libraries(runtime LIBBFD)
     add_library(LIBOPCODES STATIC IMPORTED)
     set_property(TARGET LIBOPCODES PROPERTY IMPORTED_LOCATION ${LIBOPCODES_LIBRARIES})
-    target_link_libraries(libbpftrace LIBOPCODES)
+    target_link_libraries(runtime LIBOPCODES)
     add_library(LIBIBERTY STATIC IMPORTED)
     set_property(TARGET LIBIBERTY PROPERTY IMPORTED_LOCATION ${LIBIBERTY_LIBRARIES})
-    target_link_libraries(libbpftrace LIBIBERTY)
+    target_link_libraries(runtime LIBIBERTY)
   else()
-    target_link_libraries(libbpftrace ${LIBBFD_LIBRARIES})
-    target_link_libraries(libbpftrace ${LIBOPCODES_LIBRARIES})
+    target_link_libraries(runtime ${LIBBFD_LIBRARIES})
+    target_link_libraries(runtime ${LIBOPCODES_LIBRARIES})
   endif(STATIC_LINKING)
 endif(HAVE_BFD_DISASM)
 
-target_link_libraries(libbpftrace ${LIBBCC_LIBRARIES})
+# Link to bcc libraries (without LLVM) if possible
+if(LIBBCC_BPF_CONTAINS_RUNTIME)
+  target_link_libraries(runtime ${LIBBCC_BPF_LIBRARIES})
+else()
+  target_link_libraries(runtime ${LIBBCC_LIBRARIES})
+endif()
 
 if(STATIC_LINKING)
   # These are not part of the static libbcc so have to be added separate
-  target_link_libraries(libbpftrace ${LIBBCC_BPF_LIBRARY_STATIC})
-  target_link_libraries(libbpftrace ${LIBBPF_LIBRARIES})
-  target_link_libraries(libbpftrace ${LIBBCC_LOADER_LIBRARY_STATIC})
+  target_link_libraries(runtime ${LIBBCC_BPF_LIBRARIES})
+  target_link_libraries(runtime ${LIBBPF_LIBRARIES})
+  target_link_libraries(runtime ${LIBBCC_LOADER_LIBRARY_STATIC})
 
   add_library(LIBELF STATIC IMPORTED)
   set_property(TARGET LIBELF PROPERTY IMPORTED_LOCATION ${LIBELF_LIBRARIES})
-  target_link_libraries(libbpftrace LIBELF)
+  target_link_libraries(runtime LIBELF)
 else()
-  target_link_libraries(libbpftrace ${LIBELF_LIBRARIES})
+  target_link_libraries(runtime ${LIBELF_LIBRARIES})
 endif(STATIC_LINKING)
 
 if (LIBDW_FOUND)
   if(STATIC_LINKING)
     add_library(LIBDW STATIC IMPORTED)
     set_property(TARGET LIBDW PROPERTY IMPORTED_LOCATION ${LIBDW_LIBRARIES})
-    target_link_libraries(libbpftrace LIBDW)
+    target_link_libraries(runtime LIBDW)
   else()
-    target_link_libraries(libbpftrace ${LIBDW_LIBRARIES})
+    target_link_libraries(runtime ${LIBDW_LIBRARIES})
   endif()
 endif()
 
 # Support for std::filesystem
 # GCC version <9 and Clang (all versions) require -lstdc++fs
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang" OR ${CMAKE_CXX_COMPILER_VERSION} VERSION_LESS "9")
+  target_link_libraries(runtime "stdc++fs")
   target_link_libraries(libbpftrace "stdc++fs")
 endif()
 
@@ -184,7 +200,13 @@ endif()
 if (STATIC_LINKING)
   target_link_libraries(libbpftrace "-Wl,-Bdynamic" "-lrt" "-lpthread" "-ldl" "-lm")
   target_link_libraries(libbpftrace "-Wl,-Bstatic" "-lz")
+  target_link_libraries(runtime "-Wl,-Bdynamic" "-lrt" "-lpthread" "-ldl" "-lm")
+  target_link_libraries(runtime "-Wl,-Bstatic" "-lz")
 endif()
 
 unset(MAIN_SRC)
 unset(BPFTRACE)
+
+add_subdirectory(aot)
+add_subdirectory(arch)
+add_subdirectory(ast)

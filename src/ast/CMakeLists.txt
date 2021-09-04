@@ -1,7 +1,7 @@
+add_library(ast_defs ast.cpp)
+
 add_library(ast
-  ast.cpp
   attachpoint_parser.cpp
-  fake_map.cpp
   int_parser.cpp
   irbuilderbpf.cpp
   pass_manager.cpp
@@ -16,10 +16,12 @@ add_library(ast
   passes/codegen_llvm.cpp
 )
 
-target_include_directories(ast PUBLIC ${CMAKE_SOURCE_DIR}/src)
-target_include_directories(ast PUBLIC ${CMAKE_SOURCE_DIR}/src/ast)
-target_include_directories(ast PUBLIC ${CMAKE_BINARY_DIR})
-target_link_libraries(ast arch bpforc parser)
+target_include_directories(ast_defs PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(ast_defs PUBLIC ${CMAKE_SOURCE_DIR}/src/ast)
+target_include_directories(ast_defs PUBLIC ${CMAKE_BINARY_DIR})
+target_link_libraries(ast ast_defs arch bpforc parser)
+
+add_dependencies(ast_defs parser)
 
 if (HAVE_BCC_KFUNC)
   target_compile_definitions(ast PRIVATE HAVE_BCC_KFUNC)
@@ -80,3 +82,5 @@ else()
   endif()
   target_link_libraries(ast libclang)
 endif()
+
+add_subdirectory(bpforc)

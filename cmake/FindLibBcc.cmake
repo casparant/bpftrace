@@ -5,10 +5,11 @@
 #  LIBBCC_INCLUDE_DIRS - the libbcc include directory
 #  LIBBCC_LIBRARIES - Link these to use libbcc
 #  LIBBCC_DEFINITIONS - Compiler switches required for using libbcc
-#  LIBBCC_BPF_LIBRARY_STATIC - libbpf static library (for static compilation)
+#  LIBBCC_BPF_LIBRARIES - libbcc runtime library
 #  LIBBCC_LOADER_LIBRARY_STATIC - libbcc helper static library (for static compilation)
 #  LIBBCC_ATTACH_KPROBE_SIX_ARGS_SIGNATURE
 #  LIBBCC_ATTACH_UPROBE_SEVEN_ARGS_SIGNATURE
+#  LIBBCC_BPF_CONTAINS_RUNTIME - whether libbcc_bpf.so has been expanded to contain everything !llvm & !clang
 #
 # Note that the shared libbcc binary has libbpf and bcc_loader already compiled in but
 # the static doesn't. So when creating a static build those have to be included too.
@@ -30,7 +31,7 @@ find_library (LIBBCC_LIBRARIES
     ENV LIBRARY_PATH
     ENV LD_LIBRARY_PATH)
 
-find_library (LIBBCC_BPF_LIBRARY_STATIC
+find_library (LIBBCC_BPF_LIBRARIES
   NAMES
     bcc_bpf
   PATHS
@@ -60,7 +61,7 @@ if(STATIC_LINKING)
   find_package(LibBpf)
   find_package(LibElf)
   find_package(LibZ)
-  SET(CMAKE_REQUIRED_LIBRARIES ${LIBBCC_BPF_LIBRARY_STATIC} ${LIBBPF_LIBRARIES} ${LIBELF_LIBRARIES} ${LIBZ_LIBRARIES})
+  SET(CMAKE_REQUIRED_LIBRARIES ${LIBBCC_BPF_LIBRARIES} ${LIBBPF_LIBRARIES} ${LIBELF_LIBRARIES} ${LIBZ_LIBRARIES})
 else()
   SET(CMAKE_REQUIRED_LIBRARIES ${LIBBCC_LIBRARIES} ${LIBBPF_LIBRARIES})
 endif()
@@ -84,6 +85,11 @@ int main(void) {
   return 0;
 }
 " LIBBCC_ATTACH_UPROBE_SEVEN_ARGS_SIGNATURE)
+SET(CMAKE_REQUIRED_INCLUDES)
+
+SET(CMAKE_REQUIRED_LIBRARIES ${LIBBCC_BPF_LIBRARIES})
+include(CheckSymbolExists)
+check_symbol_exists(bcc_usdt_foreach ${LIBBCC_INCLUDE_DIRS}/bcc/bcc_usdt.h LIBBCC_BPF_CONTAINS_RUNTIME)
 SET(CMAKE_REQUIRED_LIBRARIES)
 SET(CMAKE_REQUIRED_INCLUDES)
-endif()
+endif(${LIBBCC_FOUND})
