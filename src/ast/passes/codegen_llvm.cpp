@@ -193,44 +193,27 @@ void CodegenLLVM::visit(Builtin &builtin)
       builtin.ident == "retval" ||
       builtin.ident == "func")
   {
-    if (builtin.type.is_kfarg)
+    if (builtin.type.is_funcarg)
     {
       expr_ = b_.CreatKFuncArg(ctx_, builtin.type, builtin.ident);
       return;
     }
 
-    int offset;
-    if (builtin.ident == "retval")
-      offset = arch::ret_offset();
-    else if (builtin.ident == "func")
-      offset = arch::pc_offset();
-    else // argX
+    if (builtin.ident.find("arg") != std::string::npos &&
+        probetype(current_attach_point_->provider) == ProbeType::usdt)
     {
-      int arg_num = atoi(builtin.ident.substr(3).c_str());
-      if (probetype(current_attach_point_->provider) == ProbeType::usdt) {
-        expr_ = b_.CreateUSDTReadArgument(ctx_,
-                                          current_attach_point_,
-                                          current_usdt_location_index_,
-                                          arg_num,
-                                          builtin,
-                                          bpftrace_.pid(),
-                                          AddrSpace::user,
-                                          builtin.loc);
-        return;
-      }
-      offset = arch::arg_offset(arg_num);
+      expr_ = b_.CreateUSDTReadArgument(ctx_,
+                                        current_attach_point_,
+                                        current_usdt_location_index_,
+                                        atoi(builtin.ident.substr(3).c_str()),
+                                        builtin,
+                                        bpftrace_.pid(),
+                                        AddrSpace::user,
+                                        builtin.loc);
+      return;
     }
 
-    Value *ctx = b_.CreatePointerCast(ctx_, b_.getInt64Ty()->getPointerTo());
-    // LLVM optimization is possible to transform `(uint64*)ctx` into
-    // `(uint8*)ctx`, but sometimes this causes invalid context access.
-    // Mark every context acess to supporess any LLVM optimization.
-    expr_ = b_.CreateLoad(b_.getInt64Ty(),
-                          b_.CreateGEP(ctx, b_.getInt64(offset)),
-                          builtin.ident);
-    // LLVM 7.0 <= does not have CreateLoad(*Ty, *Ptr, isVolatile, Name),
-    // so call setVolatile() manually
-    dyn_cast<LoadInst>(expr_)->setVolatile(true);
+    expr_ = b_.CreateRegisterRead(ctx_, builtin.ident);
 
     if (builtin.type.IsUsymTy())
     {
@@ -1548,12 +1531,18 @@ void CodegenLLVM::visit(FieldAccess &acc)
   bool is_ctx = type.IsCtxAccess();
   bool is_tparg = type.is_tparg;
   bool is_internal = type.is_internal;
-  bool is_kfarg = type.is_kfarg;
+  bool is_funcarg = type.is_funcarg;
   assert(type.IsRecordTy() || type.IsTupleTy());
 
-  if (type.is_kfarg)
+  if (type.is_funcarg)
   {
-    expr_ = b_.CreatKFuncArg(ctx_, acc.type, acc.field);
+    auto probe_type = probetype(current_attach_point_->provider);
+    if (probe_type == ProbeType::kfunc || probe_type == ProbeType::kretfunc)
+      expr_ = b_.CreatKFuncArg(ctx_, acc.type, acc.field);
+    else
+      expr_ = b_.CreateRegisterRead(ctx_,
+                                    "arg" +
+                                        std::to_string(acc.type.funcarg_idx));
     return;
   }
   else if (type.IsTupleTy())
@@ -1582,7 +1571,7 @@ void CodegenLLVM::visit(FieldAccess &acc)
     type.MarkCtxAccess();
   type.is_tparg = is_tparg;
   type.is_internal = is_internal;
-  type.is_kfarg = is_kfarg;
+  type.is_funcarg = is_funcarg;
   // Restore the addrspace info
   // struct MyStruct { const int* a; };  $s = (struct MyStruct *)arg0;  $s->a
   type.SetAS(addrspace);

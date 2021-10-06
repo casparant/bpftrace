@@ -447,13 +447,24 @@ void SemanticAnalyser::visit(Builtin &builtin)
                                                     "struct kfunc")),
                                    AddrSpace::kernel);
       builtin.type.MarkCtxAccess();
-      builtin.type.is_kfarg = true;
+      builtin.type.is_funcarg = true;
+    }
+    else if (type == ProbeType::uprobe)
+    {
+      // Add a dummy "placeholder" type here to satisfy semantic analyser.
+      // An eventual FieldAccess is then resolved as an argument lookup.
+      builtin.type = CreatePointer(CreateRecord("struct uprobe_args",
+                                                bpftrace_.structs.Lookup(
+                                                    "struct uprobe_args")),
+                                   AddrSpace::user);
+      builtin.type.MarkCtxAccess();
+      builtin.type.is_funcarg = true;
     }
     else
     {
       LOG(ERROR, builtin.loc, err_)
-          << "The args builtin can only be used with tracepoint/kfunc probes ("
-          << probetypeName(type) << " used here)";
+          << "The args builtin can only be used with tracepoint/kfunc/uprobe"
+          << "probes (" << probetypeName(type) << " used here)";
     }
   }
   else {
@@ -1805,7 +1816,7 @@ void SemanticAnalyser::visit(Unop &unop)
       if (type.IsCtxAccess())
       {
         unop.type.MarkCtxAccess();
-        unop.type.is_kfarg = type.is_kfarg;
+        unop.type.is_funcarg = type.is_funcarg;
         unop.type.is_tparg = type.is_tparg;
       }
       unop.type.SetAS(type.GetAS());
@@ -1981,7 +1992,7 @@ void SemanticAnalyser::visit(FieldAccess &acc)
     return;
   }
 
-  if (type.is_kfarg)
+  if (type.is_funcarg)
   {
     auto it = ap_args_.find(acc.field);
 
@@ -1989,10 +2000,17 @@ void SemanticAnalyser::visit(FieldAccess &acc)
     {
       acc.type = it->second;
       acc.type.SetAS(acc.expr->type.GetAS());
+
+      if (is_final_pass())
+      {
+        if (acc.type.IsNoneTy())
+          LOG(ERROR, acc.loc, err_) << acc.field << " has unsupported type";
+      }
     }
     else
     {
-      LOG(ERROR, acc.loc, err_) << "Can't find a field " << acc.field;
+      LOG(ERROR, acc.loc, err_)
+          << "Can't find function parameter " << acc.field;
     }
     return;
   }
@@ -2312,7 +2330,7 @@ void SemanticAnalyser::visit(AssignVarStatement &assignment)
   assignment.var->type = assignment.expr->type;
 
   auto *builtin = dynamic_cast<Builtin *>(assignment.expr);
-  if (builtin && builtin->ident == "args" && builtin->type.is_kfarg)
+  if (builtin && builtin->ident == "args" && builtin->type.is_funcarg)
   {
     LOG(ERROR, assignment.loc, err_) << "args cannot be assigned to a variable";
   }
@@ -2471,6 +2489,13 @@ void SemanticAnalyser::visit(AttachPoint &ap)
             << "' but matched " << std::to_string(paths.size()) << " binaries";
         ap.target = paths.front();
       }
+    }
+    // Check if there were some arguments resolved for the probe
+    auto args_it = bpftrace_.ap_args_.find(probe_->name());
+    if (args_it != bpftrace_.ap_args_.end())
+    {
+      ap_args_.clear();
+      ap_args_.insert(args_it->second.begin(), args_it->second.end());
     }
   }
   else if (ap.provider == "usdt") {
@@ -2695,7 +2720,7 @@ void SemanticAnalyser::visit(AttachPoint &ap)
 
     if (!listing_)
     {
-      const auto &ap_map = bpftrace_.btf_ap_args_;
+      const auto &ap_map = bpftrace_.ap_args_;
       auto it = ap_map.find(probe_->name());
 
       if (it != ap_map.end())
@@ -2703,10 +2728,6 @@ void SemanticAnalyser::visit(AttachPoint &ap)
         auto args = it->second;
         ap_args_.clear();
         ap_args_.insert(args.begin(), args.end());
-      }
-      else
-      {
-        LOG(ERROR, ap.loc, err_) << "Failed to resolve kfunc args.";
       }
     }
   }

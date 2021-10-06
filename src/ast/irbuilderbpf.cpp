@@ -1057,13 +1057,36 @@ Value *IRBuilderBPF::CreatKFuncArg(Value *ctx,
   assert(type.IsIntTy() || type.IsPtrTy());
   ctx = CreatePointerCast(ctx, getInt64Ty()->getPointerTo());
   Value *expr = CreateLoad(GetType(type),
-                           CreateGEP(ctx, getInt64(type.kfarg_idx)),
+                           CreateGEP(ctx, getInt64(type.funcarg_idx)),
                            name);
 
   // LLVM 7.0 <= does not have CreateLoad(*Ty, *Ptr, isVolatile, Name),
   // so call setVolatile() manually
   dyn_cast<LoadInst>(expr)->setVolatile(true);
   return expr;
+}
+
+Value *IRBuilderBPF::CreateRegisterRead(Value *ctx, const std::string &builtin)
+{
+  int offset;
+  if (builtin == "retval")
+    offset = arch::ret_offset();
+  else if (builtin == "func")
+    offset = arch::pc_offset();
+  else // argX
+    offset = arch::arg_offset(atoi(builtin.substr(3).c_str()));
+
+  Value *ctx_ptr = CreatePointerCast(ctx, getInt64Ty()->getPointerTo());
+  // LLVM optimization is possible to transform `(uint64*)ctx` into
+  // `(uint8*)ctx`, but sometimes this causes invalid context access.
+  // Mark every context access to suppress any LLVM optimization.
+  Value *result = CreateLoad(getInt64Ty(),
+                             CreateGEP(ctx_ptr, getInt64(offset)),
+                             builtin);
+  // LLVM 7.0 <= does not have CreateLoad(*Ty, *Ptr, isVolatile, Name),
+  // so call setVolatile() manually
+  dyn_cast<LoadInst>(result)->setVolatile(true);
+  return result;
 }
 
 static bool return_zero_if_err(libbpf::bpf_func_id func_id)

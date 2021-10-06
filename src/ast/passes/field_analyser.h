@@ -30,16 +30,13 @@ public:
   void visit(Cast &cast) override;
   void visit(AssignMapStatement &assignment) override;
   void visit(AssignVarStatement &assignment) override;
-  void visit(AttachPoint &ap) override;
   void visit(Probe &probe) override;
 
   int analyse();
 
 private:
-  void check_kfunc_args(void);
-  bool resolve_args(AttachPoint &ap);
-  bool compare_args(const std::map<std::string, SizedType>& args1,
-                    const std::map<std::string, SizedType>& args2);
+  bool resolve_args(Probe &probe);
+  bool compare_args(const ProbeArgs &args1, const ProbeArgs &args2);
 
   Node *root_;
   ProbeType probe_type_;
@@ -48,15 +45,12 @@ private:
   BPFtrace      &bpftrace_;
   bpf_prog_type  prog_type_;
   bool           has_builtin_args_;
-  bool           has_mixed_args_;
-  bool           has_kfunc_probe_;
   Probe         *probe_;
-  location       mixed_args_loc_;
 
   std::ostream       &out_;
   std::ostringstream  err_;
 
-  std::map<std::string, SizedType> ap_args_;
+  ProbeArgs ap_args_;
   std::map<std::string, std::string> var_types_;
 };
 
