@@ -3,7 +3,7 @@ project(bpftrace)
 
 # bpftrace version number components.
 set(bpftrace_VERSION_MAJOR 0)
-set(bpftrace_VERSION_MINOR 13)
+set(bpftrace_VERSION_MINOR 14)
 set(bpftrace_VERSION_PATCH 0)
 
 include(GNUInstallDirs)
@@ -165,7 +165,7 @@ else()
   endif()
 
   set(MIN_LLVM_MAJOR 6)
-  set(MAX_LLVM_MAJOR 12)
+  set(MAX_LLVM_MAJOR 14)
 
   if((${LLVM_VERSION_MAJOR} VERSION_LESS ${MIN_LLVM_MAJOR}) OR (${LLVM_VERSION_MAJOR} VERSION_GREATER ${MAX_LLVM_MAJOR}))
     message(SEND_ERROR "Unsupported LLVM version found via ${LLVM_INCLUDE_DIRS}: ${LLVM_VERSION_MAJOR}")

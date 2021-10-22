@@ -4,13 +4,16 @@
 # Environment variables:
 #
 # SKIP_BCC_BUILD: Set to skip the building bcc from source
+# LLVM_VERSION: The LLVM version to install
+
+llvm_version = ENV["LLVM_VERSION"] || 12
 
 $ubuntu_deps = <<EOF
 wget https://apt.llvm.org/llvm.sh
-bash ./llvm.sh 12
+bash ./llvm.sh "$LLVM_VERSION"
 apt-get -qq update
 apt-get -qq install linux-headers-$(uname -r) binutils-dev python
-apt-get -qq install bison cmake flex g++ git libelf-dev zlib1g-dev libfl-dev systemtap-sdt-dev libclang-12-dev libcereal-dev
+apt-get -qq install asciidoctor bison cmake flex g++ git libelf-dev zlib1g-dev libfl-dev systemtap-sdt-dev "libclang-${LLVM_VERSION}-dev" libcereal-dev
 apt-get -qq install --no-install-recommends pkg-config
 EOF
 
@@ -33,7 +36,7 @@ fi
 git clone https://github.com/iovisor/bcc.git
 mkdir -p bcc/build
 cd bcc/build
-git checkout v0.19.0
+git checkout v0.22.0
 cmake .. -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX=/usr/local \
   -DENABLE_EXAMPLES=0 -DENABLE_TESTS=0 -DENABLE_MAN=0 \
   -DENABLE_LLVM_SHARED=1
@@ -71,6 +74,11 @@ Vagrant.configure("2") do |config|
       'scripts'        => [ $ubuntu_deps, ],
       'fix_console'    => 0,
     },
+    'ubuntu-21.10'     => {
+      'image'          => 'ubuntu/impish64',
+      'scripts'        => [ $ubuntu_deps, ],
+      'fix_console'    => 0,
+    },
     'fedora-34'        => {
       'image'          => 'fedora/34-cloud-base',
       'scripts'        => [ $fedora_deps, ],
@@ -98,7 +106,7 @@ Vagrant.configure("2") do |config|
       end
       box.vm.synced_folder ".", "/vagrant", disabled: false
       (params['scripts'] || []).each do |script|
-        box.vm.provision :shell, inline: script
+        box.vm.provision :shell, inline: script, env: { LLVM_VERSION: llvm_version }
       end
       unless ENV['SKIP_BCC_BUILD'] || (params['skip_bcc_build'] == 1)
         box.vm.provision :shell, privileged: false, inline: $build_bcc
