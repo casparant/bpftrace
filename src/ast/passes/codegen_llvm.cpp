@@ -569,16 +569,19 @@ void CodegenLLVM::visit(Call &call)
 
     auto scoped_del = accept(call.vargs->front());
     auto arg0 = call.vargs->front();
-    // arg0 is already on the bpf stack -> use probe kernel
-    // otherwise ->  addrspace of arg0->type
+    // arg0 is already on the bpf stack -> use memcpy
+    // otherwise -> probe read in addrspace of arg0->type
     // case : struct MyStruct { char b[4]; };
     // $s = (struct MyStruct *)arg0; buf($s->b, 4)
-    b_.CreateProbeRead(ctx_,
-                       static_cast<AllocaInst *>(buf_data_offset),
-                       length,
-                       expr_,
-                       find_addrspace_stack(arg0->type),
-                       call.loc);
+    if (shouldBeOnStackAlready(arg0->type))
+      b_.CREATE_MEMCPY(buf_data_offset, expr_, length, 1);
+    else
+      b_.CreateProbeRead(ctx_,
+                         static_cast<AllocaInst *>(buf_data_offset),
+                         length,
+                         expr_,
+                         find_addrspace_stack(arg0->type),
+                         call.loc);
 
     expr_ = buf;
     expr_deleter_ = [this, buf]() { b_.CreateLifetimeEnd(buf); };
@@ -1795,7 +1798,17 @@ void CodegenLLVM::visit(AssignMapStatement &assignment)
   auto [key, scoped_key_deleter] = getMapKey(map);
   if (shouldBeOnStackAlready(assignment.expr->type))
   {
-    val = expr;
+    if ((assignment.expr->type.IsStringTy() ||
+         assignment.expr->type.IsTupleTy()) &&
+        assignment.expr->type.GetSize() != map.type.GetSize())
+    {
+      val = b_.CreateAllocaBPF(map.type, map.ident + "_val");
+      b_.CREATE_MEMSET(val, b_.getInt8(0), map.type.GetSize(), 1);
+      b_.CREATE_MEMCPY(val, expr, assignment.expr->type.GetSize(), 1);
+      self_alloca = true;
+    }
+    else
+      val = expr;
   }
   else if (map.type.IsRecordTy() || map.type.IsArrayTy())
   {
@@ -1877,7 +1890,8 @@ void CodegenLLVM::visit(AssignVarStatement &assignment)
   }
   else if (needMemcpy(var.type))
   {
-    b_.CREATE_MEMCPY(variables_[var.ident], expr_, var.type.GetSize(), 1);
+    b_.CREATE_MEMCPY(
+        variables_[var.ident], expr_, assignment.expr->type.GetSize(), 1);
   }
   else
   {
@@ -2331,9 +2345,20 @@ std::tuple<Value *, CodegenLLVM::ScopedExprDeleter> CodegenLLVM::getMapKey(
       auto scoped_del = accept(expr);
       if (onStack(expr->type))
       {
-        key = expr_;
-        // Call-ee freed
-        scoped_del.disarm();
+        auto &key_type = map.key_type.args_[0];
+        if (expr->type.IsStringTy() &&
+            expr->type.GetSize() != key_type.GetSize())
+        {
+          key = b_.CreateAllocaBPF(key_type, map.ident + "_key");
+          b_.CREATE_MEMSET(key, b_.getInt8(0), key_type.GetSize(), 1);
+          b_.CREATE_MEMCPY(key, expr_, expr->type.GetSize(), 1);
+        }
+        else
+        {
+          key = expr_;
+          // Call-ee freed
+          scoped_del.disarm();
+        }
       }
       else
       {
@@ -2381,23 +2406,27 @@ AllocaInst *CodegenLLVM::getMultiMapKey(Map &map,
                                         size_t extra_keys_size)
 {
   size_t size = extra_keys_size;
-  for (Expression *expr : *map.vargs)
+  for (auto &key_type : map.key_type.args_)
   {
-    size += expr->type.GetSize();
+    size += key_type.GetSize();
   }
   AllocaInst *key = b_.CreateAllocaBPF(size, map.ident + "_key");
 
   int offset = 0;
   bool aligned = true;
+  int i = 0;
   // Construct a map key in the stack
   for (Expression *expr : *map.vargs)
   {
     auto scoped_del = accept(expr);
     Value *offset_val = b_.CreateGEP(key,
                                      { b_.getInt64(0), b_.getInt64(offset) });
+    size_t map_key_size = map.key_type.args_[i++].GetSize();
 
     if (onStack(expr->type))
     {
+      if (expr->type.IsStringTy() && expr->type.GetSize() < map_key_size)
+        b_.CREATE_MEMSET(offset_val, b_.getInt8(0), map_key_size, 1);
       b_.CREATE_MEMCPY(offset_val, expr_, expr->type.GetSize(), 1);
       if ((expr->type.GetSize() % 8) != 0)
         aligned = false;
@@ -2430,7 +2459,7 @@ AllocaInst *CodegenLLVM::getMultiMapKey(Map &map,
           b_.createAlignedStore(key_elem, dst_ptr, 1);
       }
     }
-    offset += expr->type.GetSize();
+    offset += map_key_size;
   }
 
   for (auto *extra_key : extra_keys)

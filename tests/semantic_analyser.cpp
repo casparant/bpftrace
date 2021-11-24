@@ -234,15 +234,15 @@ TEST(semantic_analyser, consistent_map_keys)
   test("kprobe:f { @x = 0; @x; }", 0);
   test("kprobe:f { @x[1] = 0; @x[2]; }", 0);
 
-  test("kprobe:f { @x = 0; @x[1]; }", 10);
-  test("kprobe:f { @x[1] = 0; @x; }", 10);
+  test("kprobe:f { @x = 0; @x[1]; }", 2);
+  test("kprobe:f { @x[1] = 0; @x; }", 2);
 
   test("kprobe:f { @x[1,2] = 0; @x[3,4]; }", 0);
-  test("kprobe:f { @x[1,2] = 0; @x[3]; }", 10);
-  test("kprobe:f { @x[1] = 0; @x[2,3]; }", 10);
+  test("kprobe:f { @x[1,2] = 0; @x[3]; }", 2);
+  test("kprobe:f { @x[1] = 0; @x[2,3]; }", 2);
 
   test("kprobe:f { @x[1,\"a\",kstack] = 0; @x[2,\"b\", kstack]; }", 0);
-  test("kprobe:f { @x[1,\"a\",kstack] = 0; @x[\"b\", 2, kstack]; }", 10);
+  test("kprobe:f { @x[1,\"a\",kstack] = 0; @x[\"b\", 2, kstack]; }", 2);
 }
 
 TEST(semantic_analyser, if_statements)
@@ -1006,7 +1006,7 @@ TEST(semantic_analyser, array_as_map_key)
        "    @x[((struct MyStruct *)arg0)->x] = 0; "
        "    @x[((struct MyStruct *)arg0)->y] = 1; "
        "}",
-       10);
+       2);
 }
 
 TEST(semantic_analyser, variable_type)
@@ -1075,7 +1075,7 @@ TEST(semantic_analyser, unop_lnot)
   test("kprobe:f { !(int32)0; }", 0);
   test("struct X { int n; } kprobe:f { $x = (struct X*)0; !$x; }", 10);
   test("struct X { int n; } kprobe:f { $x = *(struct X*)0; !$x; }", 10);
-  test("kprobe:f { !\"0\"; }", 1);
+  test("kprobe:f { !\"0\"; }", 10);
 }
 
 TEST(semantic_analyser, unop_increment_decrement)
@@ -1560,7 +1560,7 @@ TEST(semantic_analyser, struct_as_map_key)
        "    @x[*((struct A *)arg0)] = 0; "
        "    @x[*((struct B *)arg1)] = 1; "
        "}",
-       10);
+       2);
 }
 
 TEST(semantic_analyser, probe_short_name)
@@ -2253,7 +2253,7 @@ TEST(semantic_analyser, tuple)
   test(R"_(BEGIN { $t = ((int32)1, (int64)2); $t = ((int64)1, (int32)2); })_",
        10);
 
-  test(R"_(BEGIN { @t = (1, 2); @t = (4, "other"); })_", 1);
+  test(R"_(BEGIN { @t = (1, 2); @t = (4, "other"); })_", 10);
   test(R"_(BEGIN { @t = (1, 2); @t = 5; })_", 1);
   test(R"_(BEGIN { @t = (1, count()) })_", 1);
   test(R"_(BEGIN { @t = (1, (aaa)0) })_", 1);
@@ -2278,7 +2278,7 @@ TEST(semantic_analyser, tuple_assign_var)
   BPFtrace bpftrace;
   Driver driver(bpftrace);
   SizedType ty = CreateTuple(
-      bpftrace.structs.AddTuple({ CreateInt64(), CreateString(64) }));
+      bpftrace.structs.AddTuple({ CreateInt64(), CreateString(6) }));
   test(bpftrace,
        true,
        driver,
@@ -2344,7 +2344,7 @@ TEST(semantic_analyser, tuple_nested)
 TEST(semantic_analyser, tuple_types_unique)
 {
   auto bpftrace = get_mock_bpftrace();
-  test(*bpftrace, R"_(BEGIN { $t = (1, "str"); $t = (4, "other"); })_", 0);
+  test(*bpftrace, R"_(BEGIN { $t = (1, "hello"); $t = (4, "other"); })_", 0);
 
   EXPECT_EQ(bpftrace->structs.GetTuplesCnt(), 1ul);
 }
@@ -2397,6 +2397,57 @@ TEST(semantic_analyser, tracepoint_common_field)
 {
   test("tracepoint:file:filename { args->filename }", 0);
   test("tracepoint:file:filename { args->common_field }", 1);
+}
+
+TEST(semantic_analyser, string_size)
+{
+  // Size of the variable should be the size of the larger string (incl. null)
+  BPFtrace bpftrace;
+  Driver driver(bpftrace);
+  test(bpftrace, true, driver, R"_(BEGIN { $x = "hi"; $x = "hello"; })_", 0);
+  auto stmt = driver.root->probes->at(0)->stmts->at(0);
+  auto var_assign = dynamic_cast<ast::AssignVarStatement *>(stmt);
+  ASSERT_TRUE(var_assign->var->type.IsStringTy());
+  ASSERT_EQ(var_assign->var->type.GetSize(), 6);
+
+  test(bpftrace, true, driver, R"_(k:f1 {@ = "hi";} k:f2 {@ = "hello";})_", 0);
+  stmt = driver.root->probes->at(0)->stmts->at(0);
+  auto map_assign = dynamic_cast<ast::AssignMapStatement *>(stmt);
+  ASSERT_TRUE(map_assign->map->type.IsStringTy());
+  ASSERT_EQ(map_assign->map->type.GetSize(), 6);
+
+  test(bpftrace,
+       true,
+       driver,
+       R"_(k:f1 {@["hi"] = 0;} k:f2 {@["hello"] = 1;})_",
+       0);
+  stmt = driver.root->probes->at(0)->stmts->at(0);
+  map_assign = dynamic_cast<ast::AssignMapStatement *>(stmt);
+  ASSERT_TRUE(map_assign->map->key_type.args_.at(0).IsStringTy());
+  ASSERT_EQ(map_assign->map->key_type.args_.at(0).GetSize(), 6);
+
+  test(bpftrace,
+       true,
+       driver,
+       R"_(k:f1 {@["hi", 0] = 0;} k:f2 {@["hello", 1] = 1;})_",
+       0);
+  stmt = driver.root->probes->at(0)->stmts->at(0);
+  map_assign = dynamic_cast<ast::AssignMapStatement *>(stmt);
+  ASSERT_EQ(map_assign->map->key_type.size(), 14);
+  ASSERT_TRUE(map_assign->map->key_type.args_.at(0).IsStringTy());
+  ASSERT_EQ(map_assign->map->key_type.args_.at(0).GetSize(), 6);
+
+  test(bpftrace,
+       true,
+       driver,
+       R"_(k:f1 {$x = ("hello", 0);} k:f2 {$x = ("hi", 0); })_",
+       0);
+  stmt = driver.root->probes->at(0)->stmts->at(0);
+  var_assign = dynamic_cast<ast::AssignVarStatement *>(stmt);
+  ASSERT_TRUE(var_assign->var->type.IsTupleTy());
+  ASSERT_TRUE(var_assign->var->type.GetField(0).type.IsStringTy());
+  ASSERT_EQ(var_assign->var->type.GetSize(), 16); // tuples are not packed
+  ASSERT_EQ(var_assign->var->type.GetField(0).type.GetSize(), 6);
 }
 
 #ifdef HAVE_LIBBPF_BTF_DUMP
