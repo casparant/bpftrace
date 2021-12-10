@@ -1,23 +1,23 @@
-FROM ubuntu:bionic
+FROM ubuntu:focal
 
 ARG LLVM_VERSION
 ENV LLVM_VERSION=$LLVM_VERSION
 
 RUN apt-get update && apt-get install -y curl gnupg &&\
     llvmRepository="\n\
-deb http://apt.llvm.org/bionic/ llvm-toolchain-bionic main\n\
-deb-src http://apt.llvm.org/bionic/ llvm-toolchain-bionic main\n\
-deb http://apt.llvm.org/bionic/ llvm-toolchain-bionic-${LLVM_VERSION} main\n\
-deb-src http://apt.llvm.org/bionic/ llvm-toolchain-bionic-${LLVM_VERSION} main\n" &&\
+deb http://apt.llvm.org/focal/ llvm-toolchain-focal main\n\
+deb-src http://apt.llvm.org/focal/ llvm-toolchain-focal main\n\
+deb http://apt.llvm.org/focal/ llvm-toolchain-focal-${LLVM_VERSION} main\n\
+deb-src http://apt.llvm.org/focal/ llvm-toolchain-focal-${LLVM_VERSION} main\n" &&\
     echo $llvmRepository >> /etc/apt/sources.list && \
     curl -L https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add - && \
-    apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 4052245BD4284CDD && \
-    echo "deb https://repo.iovisor.org/apt/bionic bionic main" | tee /etc/apt/sources.list.d/iovisor.list
+    apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 4052245BD4284CDD
 
 RUN curl -L --output /tmp/cmake.tar.gz \
   https://github.com/Kitware/CMake/releases/download/v3.20.0/cmake-3.20.0-linux-x86_64.tar.gz \
   && tar -xf /tmp/cmake.tar.gz -C /usr/local/ --strip-components=1
 
+ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \
       make \
       pkg-config \
@@ -25,11 +25,11 @@ RUN apt-get update && apt-get install -y \
       bison \
       binutils-dev \
       flex \
-      g++-8 \
+      g++ \
       git \
       libelf-dev \
       zlib1g-dev \
-      libbcc \
+      libbpfcc-dev \
       libcereal-dev \
       libdw-dev \
       clang-${LLVM_VERSION} \
@@ -44,9 +44,7 @@ RUN apt-get update && apt-get install -y \
       python3 \
       xxd
 
-RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-8 60 \
-                        --slave /usr/bin/g++ g++ /usr/bin/g++-8
-
+RUN ln -s /usr/bin/python3 /usr/bin/python
 COPY build.sh /build.sh
 RUN chmod 755 /build.sh
 ENTRYPOINT ["bash", "/build.sh"]
