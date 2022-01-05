@@ -64,7 +64,7 @@ Each runtime testcase consists of multiple directives. In no particular order:
 * `MIN_KERNEL`: Skip the test unless the host's kernel version is >= the
   provided kernel version. Try not to use this directive as kernel versions may
   be misleading (backported kernel features, for example)
-* `REQUIREMENT`: Run a command in a shell. If it succeeds, run the testcase.
+* `REQUIRES`: Run a command in a shell. If it succeeds, run the testcase.
   Else, skip the testcase.
 * `ENV`: Run bpftrace invocation with additional environment variables. Must be
   in format NAME=VALUE. Supports multiple values separated by spaces.
@@ -73,6 +73,7 @@ Each runtime testcase consists of multiple directives. In no particular order:
 * `REQUIRES_FEATURE`: Only run testcase if the following bpftrace feature is
   built in. See `bpftrace --info` and `runtime/engine/runner.py` for more
   details. Also supports negative features (by prefixing `!` before feature).
+* `WILL_FAIL`: Mark that this test case will exit uncleanly (ie exit code != 0)
 
 If you need to run a test program to probe (eg, uprobe/USDT), you can use the
 `BEFORE` clause. The test scripts will wait for the test program to have a pid.
