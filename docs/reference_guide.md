@@ -2221,6 +2221,7 @@ Tracing block I/O sizes > 0 bytes
 - `uptr(void *p)` - Annotate as userspace pointer
 - `kptr(void *p)` - Annotate as kernelspace pointer
 - `macaddr(char[6] addr)` - Convert MAC address data
+- `bswap(uint[8|16|32|64] n)` - Reverse byte order
 
 Some of these are asynchronous: the kernel queues the event, but some time later (milliseconds) it is
 processed in user-space. The asynchronous actions are: `printf()`, `time()`, and `join()`. Both `ksym()`
@@ -3121,6 +3122,21 @@ Attaching 1 probe...
 unified:/user.slice/user-1000.slice/session-3.scope
 ```
 
+## 30. `bswap`: Reverse byte order
+
+Syntax: `bswap(uint[8|16|32|64] n)`
+
+Reverses the order of the bytes in integer `n`. In case of 8 bit integers, `n` is returned without being modified.
+The return type is an unsigned integer of the same width as `n`.
+
+Example:
+
+```
+# bpftrace -e 'BEGIN { $i = (uint32)0x12345678; printf("Reversing byte order of 0x%x ==> 0x%x\n", $i, bswap($i)); }'
+Attaching 1 probe...
+Reversing byte order of 0x12345678 ==> 0x78563412
+```
+
 # Map Functions
 
 Maps are special BPF data types that can be used to store counts, statistics, and histograms. They are
@@ -3631,4 +3647,5 @@ bpftrace requires kernel headers for certain features, which are searched for by
 /lib/modules/$(uname -r)
 ```
 
-The default search directory can be overridden using the environment variable `BPFTRACE_KERNEL_SOURCE`.
+The default search directory can be overridden using the environment variable `BPFTRACE_KERNEL_SOURCE`, and
+also `BPFTRACE_KERNEL_BUILD` if it is out-of-tree Linux kernel build.
