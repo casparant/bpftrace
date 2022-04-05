@@ -39,9 +39,9 @@ std::string probeReadHelperName(libbpf::bpf_func_id id)
     case libbpf::BPF_FUNC_probe_read_kernel_str:
       return "probe_read_kernel_str";
     default:
-      throw std::runtime_error("BUG: unknown probe_read id: " +
-                               std::to_string(id));
+      LOG(BUG) << "unknown probe_read id: " << std::to_string(id);
   }
+  // lgtm[cpp/missing-return]
 }
 } // namespace
 

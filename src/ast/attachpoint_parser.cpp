@@ -86,6 +86,19 @@ int AttachPointParser::parse()
         }
       }
     }
+
+    auto new_end = std::remove_if(probe->attach_points->begin(),
+                                  probe->attach_points->end(),
+                                  [](const AttachPoint *ap) {
+                                    return ap->provider.empty();
+                                  });
+    probe->attach_points->erase(new_end, probe->attach_points->end());
+
+    if (probe->attach_points->empty())
+    {
+      LOG(ERROR, probe->loc, sink_) << "No attach points for probe";
+      failed++;
+    }
   }
 
   return failed;
@@ -103,6 +116,13 @@ AttachPointParser::State AttachPointParser::parse_attachpoint(AttachPoint &ap)
   {
     errs_ << "Invalid attachpoint definition" << std::endl;
     return INVALID;
+  }
+
+  if (parts_.front().empty())
+  {
+    // Do not fail on empty attach point, could be just a trailing comma
+    ap_->provider = "";
+    return OK;
   }
 
   std::set<std::string> probe_types;
@@ -351,7 +371,8 @@ AttachPointParser::State AttachPointParser::uprobe_parser(bool allow_offset,
   {
     // For PID, the target may be skipped
     parts_.push_back(parts_[1]);
-    parts_[1] = "";
+    auto target = get_pid_exe(bpftrace_.pid());
+    parts_[1] = path_for_pid_mountns(bpftrace_.pid(), target);
   }
   if (parts_.size() != 3)
   {
@@ -380,13 +401,7 @@ AttachPointParser::State AttachPointParser::uprobe_parser(bool allow_offset,
 
   if (ap_->target.empty())
   {
-    if (bpftrace_.pid() > 0)
-    {
-      ap_->target = get_pid_exe(bpftrace_.pid());
-      ap_->target = path_for_pid_mountns(bpftrace_.pid(), ap_->target);
-    }
-    else
-      ap_->target = parts_[1];
+    ap_->target = parts_[1];
   }
 
   // Handle uprobe:/lib/asdf:func+0x100 case
