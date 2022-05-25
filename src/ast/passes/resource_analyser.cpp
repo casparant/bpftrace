@@ -1,6 +1,7 @@
 #include "resource_analyser.h"
 
 #include "bpftrace.h"
+#include "log.h"
 #include "struct.h"
 
 namespace bpftrace {
@@ -29,16 +30,23 @@ std::string get_literal_string(Expression &expr)
 
 } // namespace
 
-ResourceAnalyser::ResourceAnalyser(Node *root) : root_(root), probe_(nullptr)
+ResourceAnalyser::ResourceAnalyser(Node *root, std::ostream &out)
+    : root_(root), out_(out), probe_(nullptr)
 {
 }
 
-RequiredResources ResourceAnalyser::analyse()
+std::optional<RequiredResources> ResourceAnalyser::analyse()
 {
   Visit(*root_);
   prepare_seq_printf_ids();
 
-  return std::move(resources_);
+  if (!err_.str().empty())
+  {
+    out_ << err_.str();
+    return std::nullopt;
+  }
+
+  return std::optional{ std::move(resources_) };
 }
 
 void ResourceAnalyser::visit(Probe &probe)
@@ -126,11 +134,25 @@ void ResourceAnalyser::visit(Call &call)
     Integer &max = static_cast<Integer &>(max_arg);
     Integer &step = static_cast<Integer &>(step_arg);
 
-    resources_.lhist_args[call.map->ident] = LinearHistogramArgs{
+    auto args = LinearHistogramArgs{
       .min = min.n,
       .max = max.n,
       .step = step.n,
     };
+
+    if (resources_.lhist_args.find(call.map->ident) !=
+            resources_.lhist_args.end() &&
+        (resources_.lhist_args[call.map->ident].min != args.min ||
+         resources_.lhist_args[call.map->ident].max != args.max ||
+         resources_.lhist_args[call.map->ident].step != args.step))
+    {
+      LOG(ERROR, call.loc, err_)
+          << "Different lhist bounds in a single map unsupported";
+    }
+    else
+    {
+      resources_.lhist_args[call.map->ident] = args;
+    }
   }
   else if (call.func == "time")
   {
@@ -188,7 +210,11 @@ Pass CreateResourcePass()
 {
   auto fn = [](Node &n, PassContext &ctx) {
     ResourceAnalyser analyser{ &n };
-    ctx.b.resources = analyser.analyse();
+    auto pass_result = analyser.analyse();
+
+    if (!pass_result.has_value())
+      return PassResult::Error("Resource", 1);
+    ctx.b.resources = pass_result.value();
 
     // Create fake maps so that codegen has access to map IDs
     //
