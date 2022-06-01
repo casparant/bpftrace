@@ -9,12 +9,19 @@ and this project adheres to
 ## Unreleased
 
 #### Added
+- Add builtin: `numaid`
+  - [#2177](https://github.com/iovisor/bpftrace/pull/2177)
+
 #### Changed
 #### Deprecated
 #### Removed
 #### Fixed
 - Disallow different lhist bounds in a single map
   - [#2204](https://github.com/iovisor/bpftrace/pull/2204)
+- Serialize empty histogram as an empty JSON array
+  - [#2250](https://github.com/iovisor/bpftrace/pull/2250)
+- Handle enum values in tracepoint format defs
+  - [#2236](https://github.com/iovisor/bpftrace/pull/2236)
 
 #### Added
 #### Docs
