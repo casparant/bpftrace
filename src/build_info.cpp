@@ -33,12 +33,6 @@ std::string BuildInfo::report()
 #else
       << "no" << std::endl;
 #endif
-  buf << "  bpf_attach_kfunc: "
-#ifdef HAVE_BCC_KFUNC
-      << "yes" << std::endl;
-#else
-      << "no" << std::endl;
-#endif
   buf << "  bcc_usdt_addsem: "
 #ifdef HAVE_BCC_USDT_ADDSEM
       << "yes" << std::endl;
@@ -57,12 +51,6 @@ std::string BuildInfo::report()
 #else
       << "no" << std::endl;
 #endif
-  buf << "  libbpf: "
-#ifdef HAVE_LIBBPF
-      << "yes" << std::endl;
-#else
-      << "no" << std::endl;
-#endif
   buf << "  libbpf btf dump: "
 #ifdef HAVE_LIBBPF_BTF_DUMP
       << "yes" << std::endl;
@@ -71,6 +59,18 @@ std::string BuildInfo::report()
 #endif
   buf << "  libbpf btf dump type decl: "
 #ifdef HAVE_LIBBPF_BTF_DUMP_EMIT_TYPE_DECL
+      << "yes" << std::endl;
+#else
+      << "no" << std::endl;
+#endif
+  buf << "  libbpf bpf_prog_load: "
+#ifdef HAVE_LIBBPF_BPF_PROG_LOAD
+      << "yes" << std::endl;
+#else
+      << "no" << std::endl;
+#endif
+  buf << "  libbpf bpf_map_create: "
+#ifdef HAVE_LIBBPF_BPF_MAP_CREATE
       << "yes" << std::endl;
 #else
       << "no" << std::endl;

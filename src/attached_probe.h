@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "bpffeature.h"
+#include "btf.h"
 #include "types.h"
 
 #include <bcc/libbpf.h>
@@ -13,8 +14,8 @@
 namespace bpftrace {
 
 bpf_probe_attach_type attachtype(ProbeType t);
-bpf_prog_type progtype(ProbeType t);
-std::string progtypeName(bpf_prog_type t);
+libbpf::bpf_prog_type progtype(ProbeType t);
+std::string progtypeName(libbpf::bpf_prog_type t);
 
 class AttachedProbe
 {
@@ -22,11 +23,13 @@ public:
   AttachedProbe(Probe &probe,
                 std::tuple<uint8_t *, uintptr_t> func,
                 bool safe_mode,
-                BPFfeature &feature);
+                BPFfeature &feature,
+                BTF &btf);
   AttachedProbe(Probe &probe,
                 std::tuple<uint8_t *, uintptr_t> func,
                 int pid,
-                BPFfeature &feature);
+                BPFfeature &feature,
+                BTF &btf);
   ~AttachedProbe();
   AttachedProbe(const AttachedProbe &) = delete;
   AttachedProbe &operator=(const AttachedProbe &) = delete;
@@ -82,6 +85,8 @@ private:
   uint64_t offset_ = 0;
   int tracing_fd_ = -1;
   std::function<void()> usdt_destructor_;
+
+  BTF &btf_;
 };
 
 } // namespace bpftrace
