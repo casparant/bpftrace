@@ -18,6 +18,7 @@ BUILD_LIBBPF=${BUILD_LIBBPF:-OFF}
 LIBBPF_VERSION=${LIBBPF_VERSION:-0.8.0}
 CC=${CC:cc}
 CXX=${CXX:c++}
+ENABLE_SKB_OUTPUT=${ENABLE_SKB_OUTPUT:-ON}
 
 if [[ $LLVM_VERSION -eq 13 ]]; then 
   touch /usr/lib/llvm-13/bin/llvm-omp-device-info
@@ -48,6 +49,7 @@ cmake -DCMAKE_BUILD_TYPE="$2" \
       -DVENDOR_GTEST=$VENDOR_GTEST \
       -DBUILD_ASAN:BOOL=$RUN_MEMLEAK_TEST \
       -DCMAKE_VERBOSE_MAKEFILE:BOOL=ON \
+      -DENABLE_SKB_OUTPUT:BOOL=$ENABLE_SKB_OUTPUT \
       "${CMAKE_EXTRA_FLAGS}" \
       ../
 shift 2

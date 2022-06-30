@@ -25,6 +25,8 @@ set(BUILD_FUZZ OFF CACHE BOOL "Build bpftrace for fuzzing")
 set(USE_LIBFUZZER OFF CACHE BOOL "Use libfuzzer for fuzzing")
 set(FUZZ_TARGET "codegen" CACHE STRING "Fuzzing target")
 
+set(ENABLE_SKB_OUTPUT ON CACHE BOOL "Enable skb_output, will include libpcap")
+
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 if(EMBED_BUILD_LLVM)
@@ -65,6 +67,12 @@ add_compile_options("-Wdisabled-optimization")
 
 if (WARNINGS_AS_ERRORS)
   add_compile_options("-Werror")
+endif()
+
+# Clang compiler produces narrowing errors when calling BPF_LD_MAP_FD in the bcc library
+# Turning off them before bcc library fixes this
+if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+  add_compile_options("-Wno-narrowing")
 endif()
 
 # Ninja buffers output so gcc/clang think it's not an interactive session.
@@ -118,6 +126,10 @@ set(CMAKE_REQUIRED_DEFINITIONS)
 find_package(LibBfd)
 find_package(LibOpcodes)
 find_package(LibDw)
+
+if(ENABLE_SKB_OUTPUT)
+find_package(LibPcap)
+endif()
 
 if(POLICY CMP0075)
   cmake_policy(SET CMP0075 NEW)
@@ -265,6 +277,10 @@ endif(HAVE_LIBBPF_KPROBE_MULTI)
 if (LIBDW_FOUND)
   set(BPFTRACE_FLAGS "${BPFTRACE_FLAGS}" HAVE_LIBDW)
 endif ()
+
+if(LIBPCAP_FOUND)
+  set(BPFTRACE_FLAGS "${BPFTRACE_FLAGS}" HAVE_LIBPCAP)
+endif(LIBPCAP_FOUND)
 
 add_subdirectory(src)
 if (BUILD_TESTING)
