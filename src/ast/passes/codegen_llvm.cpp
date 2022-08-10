@@ -612,7 +612,14 @@ void CodegenLLVM::visit(Call &call)
     AllocaInst *buf = b_.CreateAllocaBPF(bpftrace_.strlen_, "path");
     b_.CREATE_MEMSET(buf, b_.getInt8(0), bpftrace_.strlen_, 1);
     call.vargs->front()->accept(*this);
-    b_.CreatePath(ctx_, buf, expr_, call.loc);
+    b_.CreatePath(ctx_,
+                  buf,
+                  b_.CreateCast(expr_->getType()->isPointerTy()
+                                    ? Instruction::BitCast
+                                    : Instruction::IntToPtr,
+                                expr_,
+                                b_.getInt8PtrTy()),
+                  call.loc);
     expr_ = buf;
     expr_deleter_ = [this, buf]() { b_.CreateLifetimeEnd(buf); };
   }
@@ -900,8 +907,12 @@ void CodegenLLVM::visit(Call &call)
       Value *fmt = b_.CreateAdd(map_data, b_.getInt64(idx));
 
       // and finally the seq_printf call
-      b_.CreateSeqPrintf(
-          ctx_, fmt, b_.getInt64(size), data, b_.getInt64(data_size), call.loc);
+      b_.CreateSeqPrintf(ctx_,
+                         b_.CreateIntToPtr(fmt, b_.getInt8PtrTy()),
+                         b_.getInt32(size),
+                         b_.CreatePointerCast(data, b_.getInt8PtrTy()),
+                         b_.getInt32(data_size),
+                         call.loc);
 
       seq_printf_id_++;
     }
@@ -1579,9 +1590,7 @@ void CodegenLLVM::unop_ptr(Unop &unop)
         int size = unop.type.IsIntegerTy() ? et->GetIntBitWidth() / 8 : 8;
         AllocaInst *dst = b_.CreateAllocaBPF(*et, "deref");
         b_.CreateProbeRead(ctx_, dst, size, expr_, type.GetAS(), unop.loc);
-        expr_ = b_.CreateIntCast(b_.CreateLoad(b_.GetType(*et), dst),
-                                 b_.getInt64Ty(),
-                                 unop.type.IsSigned());
+        expr_ = b_.CreateLoad(b_.GetType(*et), dst);
         b_.CreateLifetimeEnd(dst);
       }
       break;
@@ -2572,7 +2581,7 @@ std::tuple<Value *, CodegenLLVM::ScopedExprDeleter> CodegenLLVM::getMapKey(
     else
     {
       // Two or more values as a map key (e.g, @[comm, pid] = 1;)
-      key = getMultiMapKey(map, {}, 0);
+      key = getMultiMapKey(map, {});
     }
   }
   else
@@ -2590,13 +2599,16 @@ std::tuple<Value *, CodegenLLVM::ScopedExprDeleter> CodegenLLVM::getMapKey(
 }
 
 AllocaInst *CodegenLLVM::getMultiMapKey(Map &map,
-                                        const std::vector<Value *> &extra_keys,
-                                        size_t extra_keys_size)
+                                        const std::vector<Value *> &extra_keys)
 {
-  size_t size = extra_keys_size;
+  size_t size = 0;
   for (auto &key_type : map.key_type.args_)
   {
     size += key_type.GetSize();
+  }
+  for (auto *extra_key : extra_keys)
+  {
+    size += module_->getDataLayout().getTypeAllocSize(extra_key->getType());
   }
   AllocaInst *key = b_.CreateAllocaBPF(size, map.ident + "_key");
   auto *key_type = ArrayType::get(b_.getInt8Ty(), size);
@@ -2657,10 +2669,14 @@ AllocaInst *CodegenLLVM::getMultiMapKey(Map &map,
     Value *offset_val = b_.CreateGEP(key_type,
                                      key,
                                      { b_.getInt64(0), b_.getInt64(offset) });
+    Value *offset_val_cast = b_.CreatePointerCast(
+        offset_val, extra_key->getType()->getPointerTo());
+
     if (aligned)
-      b_.CreateStore(extra_key, offset_val);
+      b_.CreateStore(extra_key, offset_val_cast);
     else
-      b_.createAlignedStore(extra_key, offset_val, 1);
+      b_.createAlignedStore(extra_key, offset_val_cast, 1);
+    offset += module_->getDataLayout().getTypeAllocSize(extra_key->getType());
   }
 
   return key;
@@ -2669,7 +2685,7 @@ AllocaInst *CodegenLLVM::getMultiMapKey(Map &map,
 AllocaInst *CodegenLLVM::getHistMapKey(Map &map, Value *log2)
 {
   if (map.vargs)
-    return getMultiMapKey(map, { log2 }, 8);
+    return getMultiMapKey(map, { log2 });
 
   AllocaInst *key = b_.CreateAllocaBPF(CreateUInt64(), map.ident + "_key");
   b_.CreateStore(log2, key);
@@ -3419,7 +3435,6 @@ void CodegenLLVM::probereadDatastructElem(Value *src_data,
       expr_ = b_.CreateLoad(dst_type,
                             b_.CreateIntToPtr(src, dst_type->getPointerTo()),
                             true);
-      expr_ = b_.CreateIntCast(expr_, b_.getInt64Ty(), elem_type.IsSigned());
 
       // check context access for iter probes (required by kernel)
       if (probetype(current_attach_point_->provider) == ProbeType::iter)
