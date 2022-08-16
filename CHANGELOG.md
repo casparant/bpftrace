@@ -21,6 +21,8 @@ and this project adheres to
   - [#2265](https://github.com/iovisor/bpftrace/pull/2265)
 - Add non-uprobe based BEGIN/END implementation
   - [#2264](https://github.com/iovisor/bpftrace/pull/2264)
+- Helper errors (-k, -kk options) are now emitted to text or json output
+  - [#2326](https://github.com/iovisor/bpftrace/pull/2326)
 
 #### Deprecated
 #### Removed
@@ -39,6 +41,8 @@ and this project adheres to
   - [#2313](https://github.com/iovisor/bpftrace/pull/2313)
 - Fix invalid LLVM IR as detected by tests
   - [#2316](https://github.com/iovisor/bpftrace/pull/2316)
+- Fix builds against libbfd(binutils) >=2.39
+  - [#2328](https://github.com/iovisor/bpftrace/pull/2328)
 
 #### Added
 #### Docs
