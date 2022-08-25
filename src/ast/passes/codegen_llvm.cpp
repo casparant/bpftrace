@@ -935,7 +935,7 @@ void CodegenLLVM::visit(Call &call)
     auto size = std::get<1>(ids);
 
     Value *map_data = b_.CreateBpfPseudoCallValue(mapid);
-    Value *fmt_ptr = b_.CreateAdd(map_data, b_.getInt64(idx));
+    Value *fmt = b_.CreateAdd(map_data, b_.getInt64(idx));
 
     std::vector<Value *> values;
     for (size_t i = 1; i < call.vargs->size(); i++)
@@ -945,7 +945,10 @@ void CodegenLLVM::visit(Call &call)
       values.push_back(expr_);
     }
 
-    b_.CreateTracePrintk(fmt_ptr, b_.getInt32(size), values, call.loc);
+    b_.CreateTracePrintk(b_.CreateIntToPtr(fmt, b_.getInt8PtrTy()),
+                         b_.getInt32(size),
+                         values,
+                         call.loc);
     mapped_printf_id_++;
   }
   else if (call.func == "system")
@@ -1117,6 +1120,10 @@ void CodegenLLVM::visit(Call &call)
   else if (call.func == "sizeof")
   {
     expr_ = b_.getInt64(call.vargs->at(0)->type.GetSize());
+  }
+  else if (call.func == "strerror")
+  {
+    auto scoped_del = accept(call.vargs->front());
   }
   else if (call.func == "strncmp") {
     uint64_t size = (uint64_t)*bpftrace_.get_int_literal(call.vargs->at(2));
