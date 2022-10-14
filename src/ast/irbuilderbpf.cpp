@@ -481,16 +481,6 @@ void IRBuilderBPF::CreateMapDeleteElem(Value *ctx,
 
 void IRBuilderBPF::CreateProbeRead(Value *ctx,
                                    Value *dst,
-                                   size_t size,
-                                   Value *src,
-                                   AddrSpace as,
-                                   const location &loc)
-{
-  return CreateProbeRead(ctx, dst, getInt32(size), src, as, loc);
-}
-
-void IRBuilderBPF::CreateProbeRead(Value *ctx,
-                                   Value *dst,
                                    llvm::Value *size,
                                    Value *src,
                                    AddrSpace as,
@@ -672,7 +662,7 @@ Value *IRBuilderBPF::CreateUSDTReadArgument(Value *ctx,
       {
         ptr = CreateAdd(ptr, index_offset);
       }
-      CreateProbeRead(ctx, dst, abs_size, ptr, as, loc);
+      CreateProbeRead(ctx, dst, getInt32(abs_size), ptr, as, loc);
       result = CreateLoad(getIntNTy(abs_size * 8), dst);
     }
     else
@@ -1162,16 +1152,31 @@ Value *IRBuilderBPF::CreateRegisterRead(Value *ctx, const std::string &builtin)
   else // argX
     offset = arch::arg_offset(atoi(builtin.substr(3).c_str()));
 
-  Value *ctx_ptr = CreatePointerCast(ctx, getInt64Ty()->getPointerTo());
+  return CreateRegisterRead(ctx, offset, builtin);
+}
+
+Value *IRBuilderBPF::CreateRegisterRead(Value *ctx,
+                                        int offset,
+                                        const std::string &name)
+{
+  // Bitwidth of register values in struct pt_regs is the same as the kernel
+  // pointer width on all supported architectures.
+  llvm::Type *registerTy = getKernelPointerStorageTy();
+  Value *ctx_ptr = CreatePointerCast(ctx, registerTy->getPointerTo());
   // LLVM optimization is possible to transform `(uint64*)ctx` into
   // `(uint8*)ctx`, but sometimes this causes invalid context access.
   // Mark every context access to suppress any LLVM optimization.
-  Value *result = CreateLoad(getInt64Ty(),
-                             CreateGEP(getInt64Ty(), ctx_ptr, getInt64(offset)),
-                             builtin);
+  Value *result = CreateLoad(registerTy,
+                             CreateGEP(registerTy, ctx_ptr, getInt64(offset)),
+                             name);
   // LLVM 7.0 <= does not have CreateLoad(*Ty, *Ptr, isVolatile, Name),
   // so call setVolatile() manually
   dyn_cast<LoadInst>(result)->setVolatile(true);
+  // Caller expects an int64, so add a cast if the register size is different.
+  if (result->getType()->getIntegerBitWidth() != 64)
+  {
+    result = CreateIntCast(result, getInt64Ty(), false);
+  }
   return result;
 }
 
@@ -1338,6 +1343,87 @@ StoreInst *IRBuilderBPF::createAlignedStore(Value *val,
 #else
   return CreateAlignedStore(val, ptr, MaybeAlign(align));
 #endif
+}
+
+void IRBuilderBPF::CreateProbeRead(Value *ctx,
+                                   Value *dst,
+                                   const SizedType &type,
+                                   Value *src,
+                                   const location &loc,
+                                   std::optional<AddrSpace> addrSpace)
+{
+  AddrSpace as = addrSpace ? addrSpace.value() : type.GetAS();
+
+  if (!type.IsPtrTy())
+    return CreateProbeRead(ctx, dst, getInt32(type.GetSize()), src, as, loc);
+
+  // Pointers are internally always represented as 64-bit integers, matching the
+  // BPF register size (BPF is a 64-bit ISA). This helps to avoid BPF codegen
+  // issues such as truncating PTR_TO_STACK registers using shift operations,
+  // which is disallowed (see https://github.com/iovisor/bpftrace/pull/2361).
+  // However, when reading pointers from kernel or user memory, we need to use
+  // the appropriate size for the target system.
+  const size_t ptr_size = getPointerStorageTy(as)->getIntegerBitWidth() / 8;
+
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  // TODO: support 32-bit big-endian systems
+  assert(ptr_size == type.GetSize());
+#endif
+
+  if (ptr_size != type.GetSize())
+    CREATE_MEMSET(dst, getInt8(0), type.GetSize(), 1);
+
+  CreateProbeRead(ctx, dst, getInt32(ptr_size), src, as, loc);
+}
+
+llvm::Value *IRBuilderBPF::CreateDatastructElemLoad(
+    const SizedType &type,
+    llvm::Value *ptr,
+    bool isVolatile,
+    std::optional<AddrSpace> addrSpace)
+{
+  AddrSpace as = addrSpace ? addrSpace.value() : type.GetAS();
+  llvm::Type *ptr_storage_ty = getPointerStorageTy(as);
+
+  if (!type.IsPtrTy() || ptr_storage_ty == getInt64Ty())
+    return CreateLoad(GetType(type), ptr, isVolatile);
+
+  assert(GetType(type) == getInt64Ty());
+
+  // Pointer size for the given address space doesn't match the BPF-side
+  // representation. Use ptr_storage_ty as the load type and cast the result
+  // back to int64.
+  llvm::Value *expr = CreateLoad(
+      ptr_storage_ty,
+      CreatePointerCast(ptr, ptr_storage_ty->getPointerTo()),
+      isVolatile);
+
+  return CreateIntCast(expr, getInt64Ty(), false);
+}
+
+llvm::Type *IRBuilderBPF::getPointerStorageTy(AddrSpace as)
+{
+  switch (as)
+  {
+    case AddrSpace::user:
+      return getUserPointerStorageTy();
+    default:
+      return getKernelPointerStorageTy();
+  }
+}
+
+llvm::Type *IRBuilderBPF::getKernelPointerStorageTy()
+{
+  static int ptr_width = get_kernel_ptr_width();
+
+  return getIntNTy(ptr_width);
+}
+
+llvm::Type *IRBuilderBPF::getUserPointerStorageTy()
+{
+  // TODO: we don't currently have an easy way of determining the pointer size
+  // of the uprobed process, so assume it's the same as the kernel's for now.
+  return getKernelPointerStorageTy();
 }
 
 } // namespace ast
