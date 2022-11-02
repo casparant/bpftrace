@@ -125,7 +125,6 @@ int AttachedProbe::detach_kfunc(void)
   return 0;
 }
 
-#ifdef HAVE_LIBBPF_LINK_CREATE
 void AttachedProbe::attach_iter(void)
 {
   linkfd_ = bpf_link_create(progfd_,
@@ -144,20 +143,6 @@ int AttachedProbe::detach_iter(void)
   close(linkfd_);
   return 0;
 }
-#else
-void AttachedProbe::attach_iter(void)
-{
-  throw std::runtime_error(
-      "Error attaching probe: " + probe_.name +
-      ", iter API is not available for linked libbpf version");
-}
-
-int AttachedProbe::detach_iter(void)
-{
-  LOG(ERROR) << "iter is not available for linked bpf version";
-  return 0;
-}
-#endif // HAVE_LIBBPF_LINK_CREATE
 
 AttachedProbe::AttachedProbe(Probe &probe,
                              std::tuple<uint8_t *, uintptr_t> func,
@@ -708,13 +693,9 @@ void AttachedProbe::load_prog(BPFfeature &feature)
         continue;
       }
 
-#ifdef HAVE_LIBBPF_BPF_PROG_LOAD
       LIBBPF_OPTS(bpf_prog_load_opts, opts);
       opts.log_buf = log_buf.get();
       opts.log_size = log_buf_size;
-#else
-      struct bpf_load_program_attr opts = {};
-#endif
       opts.log_level = log_level;
 
       if (probe_.type == ProbeType::kfunc)
@@ -744,22 +725,12 @@ void AttachedProbe::load_prog(BPFfeature &feature)
         opts.kern_version = version;
       }
 
-#ifdef HAVE_LIBBPF_BPF_PROG_LOAD
       progfd_ = bpf_prog_load(static_cast<::bpf_prog_type>(prog_type),
                               name.c_str(),
                               license,
                               reinterpret_cast<struct bpf_insn *>(insns),
                               prog_len / sizeof(struct bpf_insn),
                               &opts);
-#else
-      opts.prog_type = static_cast<::bpf_prog_type>(prog_type);
-      opts.name = name.c_str();
-      opts.insns = reinterpret_cast<struct bpf_insn *>(insns);
-      opts.insns_cnt = prog_len / sizeof(struct bpf_insn);
-      opts.license = license;
-      opts.attach_prog_fd = 0;
-      progfd_ = bpf_load_program_xattr(&opts, log_buf.get(), log_buf_size);
-#endif
       if (progfd_ >= 0)
         break;
     }
@@ -815,7 +786,6 @@ void AttachedProbe::load_prog(BPFfeature &feature)
   cache_progfd();
 }
 
-#ifdef HAVE_LIBBPF_KPROBE_MULTI
 static inline uint64_t ptr_to_u64(const void *ptr)
 {
   return (uint64_t)(unsigned long)ptr;
@@ -862,33 +832,22 @@ void AttachedProbe::attach_multi_kprobe(void)
     throw std::runtime_error("Error attaching probe: '" + probe_.name + "'");
   }
 }
-#endif // HAVE_LIBBPF_KPROBE_MULTI
 
 void AttachedProbe::attach_kprobe(bool safe_mode)
 {
-#ifdef HAVE_LIBBPF_KPROBE_MULTI
   if (!probe_.funcs.empty())
   {
     attach_multi_kprobe();
     return;
   }
-#endif
 
   resolve_offset_kprobe(safe_mode);
-#ifdef LIBBCC_ATTACH_KPROBE_SIX_ARGS_SIGNATURE
   int perf_event_fd = bpf_attach_kprobe(progfd_,
                                         attachtype(probe_.type),
                                         eventname().c_str(),
                                         probe_.attach_point.c_str(),
                                         offset_,
                                         0);
-#else
-  int perf_event_fd = bpf_attach_kprobe(progfd_,
-                                        attachtype(probe_.type),
-                                        eventname().c_str(),
-                                        probe_.attach_point.c_str(),
-                                        offset_);
-#endif
 
   if (perf_event_fd < 0) {
     if (probe_.orig_name != probe_.name) {
@@ -911,23 +870,13 @@ void AttachedProbe::attach_uprobe(bool safe_mode)
 {
   resolve_offset_uprobe(safe_mode);
 
-  int perf_event_fd =
-#ifdef LIBBCC_ATTACH_UPROBE_SEVEN_ARGS_SIGNATURE
-      bpf_attach_uprobe(progfd_,
-                        attachtype(probe_.type),
-                        eventname().c_str(),
-                        probe_.path.c_str(),
-                        offset_,
-                        probe_.pid,
-                        0);
-#else
-      bpf_attach_uprobe(progfd_,
-                        attachtype(probe_.type),
-                        eventname().c_str(),
-                        probe_.path.c_str(),
-                        offset_,
-                        probe_.pid);
-#endif // LIBBCC_ATTACH_UPROBE_SEVEN_ARGS_SIGNATURE
+  int perf_event_fd = bpf_attach_uprobe(progfd_,
+                                        attachtype(probe_.type),
+                                        eventname().c_str(),
+                                        probe_.path.c_str(),
+                                        offset_,
+                                        probe_.pid,
+                                        0);
 
   if (perf_event_fd < 0)
     throw std::runtime_error("Error attaching probe: " + probe_.name);
@@ -960,7 +909,6 @@ int AttachedProbe::usdt_sem_up_manual(const std::string &fn_name, void *ctx)
   return err;
 }
 
-#ifdef HAVE_BCC_USDT_ADDSEM
 int AttachedProbe::usdt_sem_up_manual_addsem(int pid,
                                              const std::string &fn_name,
                                              void *ctx)
@@ -1003,15 +951,6 @@ int AttachedProbe::usdt_sem_up_manual_addsem(int pid,
 
   return err;
 }
-#else
-int AttachedProbe::usdt_sem_up_manual_addsem(int pid __attribute__((unused)),
-                                             const std::string &fn_name
-                                             __attribute__((unused)),
-                                             void *ctx __attribute__((unused)))
-{
-  return 0;
-}
-#endif // HAVE_BCC_USDT_ADDSEM
 
 int AttachedProbe::usdt_sem_up([[maybe_unused]] BPFfeature &feature,
                                [[maybe_unused]] int pid,
@@ -1027,11 +966,7 @@ int AttachedProbe::usdt_sem_up([[maybe_unused]] BPFfeature &feature,
     return 0;
   }
 
-#if defined(HAVE_BCC_USDT_ADDSEM)
   return usdt_sem_up_manual_addsem(pid, fn_name, ctx);
-#else
-  return usdt_sem_up_manual(fn_name, ctx);
-#endif
 }
 
 void AttachedProbe::attach_usdt(int pid, BPFfeature &feature)
@@ -1100,7 +1035,6 @@ void AttachedProbe::attach_usdt(int pid, BPFfeature &feature)
   }
 
   int perf_event_fd =
-#ifdef LIBBCC_ATTACH_UPROBE_SEVEN_ARGS_SIGNATURE
       bpf_attach_uprobe(progfd_,
                         attachtype(probe_.type),
                         eventname().c_str(),
@@ -1108,14 +1042,6 @@ void AttachedProbe::attach_usdt(int pid, BPFfeature &feature)
                         offset_,
                         pid == 0 ? -1 : pid,
                         semaphore_offset);
-#else
-      bpf_attach_uprobe(progfd_,
-                        attachtype(probe_.type),
-                        eventname().c_str(),
-                        probe_.path.c_str(),
-                        offset_,
-                        pid == 0 ? -1 : pid);
-#endif // LIBBCC_ATTACH_UPROBE_SEVEN_ARGS_SIGNATURE
 
   if (perf_event_fd < 0)
   {

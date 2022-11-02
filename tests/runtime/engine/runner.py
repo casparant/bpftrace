@@ -129,7 +129,6 @@ class Runner(object):
         bpffeature["dpath"] = output.find("dpath: yes") != -1
         bpffeature["uprobe_refcount"] = \
             output.find("uprobe refcount (depends on Build:bcc bpf_attach_uprobe refcount): yes") != -1
-        bpffeature["bcc_usdt_addsem"] = output.find("bcc_usdt_addsem: yes") != -1
         bpffeature["signal"] = output.find("send_signal: yes") != -1
         bpffeature["iter:task"] = output.find("iter:task: yes") != -1
         bpffeature["iter:task_file"] = output.find("iter:task_file: yes") != -1
@@ -158,10 +157,11 @@ class Runner(object):
 
         signal.signal(signal.SIGALRM, Runner.__handler)
 
+        p = None
+        before = None
+        bpftrace = None
+        after = None
         try:
-            before = None
-            bpftrace = None
-            after = None
             timeout = False
 
             print(ok("[ RUN      ] ") + "%s.%s" % (test.suite, test.name))
@@ -210,7 +210,7 @@ class Runner(object):
                             raise TimeoutError('Timed out waiting for BEFORE %s ', test.before)
 
             bpf_call = Runner.prepare_bpf_call(test)
-            if test.before:
+            if test.before and '{{BEFORE_PID}}' in bpf_call:
                 childpid = subprocess.Popen(["pidof", child_name], stdout=subprocess.PIPE, universal_newlines=True).communicate()[0].split()[0]
                 bpf_call = re.sub("{{BEFORE_PID}}", str(childpid), bpf_call)
             env = {
@@ -263,10 +263,11 @@ class Runner(object):
             #
             # Send a SIGTERM here so bpftrace exits cleanly. We'll send an SIGKILL
             # if SIGTERM didn't do the trick later
-            if p.poll() is None:
-                os.killpg(os.getpgid(p.pid), signal.SIGTERM)
-            output += p.communicate()[0]
-            result = re.search(test.expect, output)
+            if p:
+                if p.poll() is None:
+                    os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+                output += p.communicate()[0]
+                result = re.search(test.expect, output)
             if not result:
                 print(fail("[  TIMEOUT ] ") + "%s.%s" % (test.suite, test.name))
                 print('\tCommand: %s' % bpf_call)
@@ -283,7 +284,7 @@ class Runner(object):
             if after and after.poll() is None:
                 os.killpg(os.getpgid(after.pid), signal.SIGKILL)
 
-        if p.returncode != 0 and not test.will_fail and not timeout:
+        if p and p.returncode != 0 and not test.will_fail and not timeout:
             print(fail("[  FAILED  ] ") + "%s.%s" % (test.suite, test.name))
             print('\tCommand: ' + bpf_call)
             print('\tUnclean exit code: ' + str(p.returncode))
