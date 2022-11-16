@@ -185,7 +185,9 @@ int BPFtrace::add_probe(ast::Probe &p)
                                ":" + attach_point->func);
       else if (probetype(attach_point->provider) == ProbeType::tracepoint ||
                probetype(attach_point->provider) == ProbeType::uprobe ||
-               probetype(attach_point->provider) == ProbeType::uretprobe)
+               probetype(attach_point->provider) == ProbeType::uretprobe ||
+               probetype(attach_point->provider) == ProbeType::kfunc ||
+               probetype(attach_point->provider) == ProbeType::kretfunc)
         attach_funcs.push_back(attach_point->target + ":" + attach_point->func);
       else
         attach_funcs.push_back(attach_point->func);
@@ -222,9 +224,11 @@ int BPFtrace::add_probe(ast::Probe &p)
       }
       else if (probetype(attach_point->provider) == ProbeType::tracepoint ||
                probetype(attach_point->provider) == ProbeType::uprobe ||
-               probetype(attach_point->provider) == ProbeType::uretprobe)
+               probetype(attach_point->provider) == ProbeType::uretprobe ||
+               probetype(attach_point->provider) == ProbeType::kfunc ||
+               probetype(attach_point->provider) == ProbeType::kretfunc)
       {
-        // tracepoint and uprobe probes must specify both a target and
+        // tracepoint, uprobe, and k(ret)func probes specify both a target and
         // a function name.
         // We extract the target from func_id so that a resolved target and a
         // resolved function name are used in the probe.
@@ -787,7 +791,7 @@ std::vector<std::unique_ptr<AttachedProbe>> BPFtrace::attach_usdt_probe(
   if (feature_->has_uprobe_refcnt() || !(file_activation && probe.path.size()))
   {
     ret.emplace_back(
-        std::make_unique<AttachedProbe>(probe, func, pid, *feature_, btf_));
+        std::make_unique<AttachedProbe>(probe, func, pid, *feature_, *btf_));
     return ret;
   }
 
@@ -848,7 +852,7 @@ std::vector<std::unique_ptr<AttachedProbe>> BPFtrace::attach_usdt_probe(
       }
 
       ret.emplace_back(std::make_unique<AttachedProbe>(
-          probe, func, pid_parsed, *feature_, btf_));
+          probe, func, pid_parsed, *feature_, *btf_));
       break;
     }
   }
@@ -935,13 +939,13 @@ std::vector<std::unique_ptr<AttachedProbe>> BPFtrace::attach_probe(
              probe.type == ProbeType::asyncwatchpoint)
     {
       ret.emplace_back(std::make_unique<AttachedProbe>(
-          probe, *section, pid, *feature_, btf_));
+          probe, *section, pid, *feature_, *btf_));
       return ret;
     }
     else
     {
       ret.emplace_back(std::make_unique<AttachedProbe>(
-          probe, *section, safe_mode_, *feature_, btf_));
+          probe, *section, safe_mode_, *feature_, *btf_));
       return ret;
     }
   }
@@ -2270,6 +2274,19 @@ bool BPFtrace::is_traceable_func(const std::string &func_name) const
 #endif
 }
 
+std::unordered_set<std::string> BPFtrace::get_func_modules(
+    const std::string &func_name) const
+{
+#ifdef FUZZ
+  (void)func_name;
+  return {};
+#else
+  auto mod = traceable_funcs_.find(func_name);
+  return mod != traceable_funcs_.end() ? mod->second
+                                       : std::unordered_set<std::string>();
+#endif
+}
+
 Dwarf *BPFtrace::get_dwarf(const std::string &filename)
 {
   auto dwarf = dwarves_.find(filename);
@@ -2334,6 +2351,16 @@ bool BPFtrace::write_pcaps(uint64_t id,
   auto &writer = pcap_writers.at(file);
 
   return writer->write(ns, pkt, size);
+}
+
+void BPFtrace::parse_btf(const std::set<std::string> &modules)
+{
+  btf_ = std::make_unique<BTF>(this, modules);
+}
+
+bool BPFtrace::has_btf_data() const
+{
+  return btf_ && btf_->has_data();
 }
 
 } // namespace bpftrace

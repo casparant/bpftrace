@@ -1,4 +1,5 @@
 #include <array>
+#include <bpf/libbpf.h>
 #include <csignal>
 #include <cstdio>
 #include <cstring>
@@ -24,6 +25,7 @@
 
 #include "bpffeature.h"
 #include "bpftrace.h"
+#include "btf.h"
 #include "build_info.h"
 #include "child.h"
 #include "clang_parser.h"
@@ -347,6 +349,8 @@ static std::optional<struct timespec> get_boottime()
   if (err)
     return nullptr;
 
+  bpftrace.parse_btf(driver.list_modules());
+
   ast::FieldAnalyser fields(driver.root.get(), bpftrace);
   err = fields.analyse();
   if (err)
@@ -662,6 +666,14 @@ Args parse_args(int argc, char* argv[])
   return args;
 }
 
+static int libbpf_print(enum libbpf_print_level level,
+                        const char* msg,
+                        va_list ap)
+{
+  fprintf(stderr, "libbpf: (%d) ", level);
+  return vfprintf(stderr, msg, ap);
+}
+
 int main(int argc, char* argv[])
 {
   int err;
@@ -709,6 +721,9 @@ int main(int argc, char* argv[])
       std::setvbuf(stdout, NULL, _IONBF, BUFSIZ);
       break;
   }
+
+  if (bt_debug != DebugLevel::kNone)
+    libbpf_set_print(libbpf_print);
 
   BPFtrace bpftrace(std::move(output));
   bool verify_llvm_ir = false;
@@ -762,6 +777,7 @@ int main(int argc, char* argv[])
          args.search.find("enum") == 0))
     {
       // Print structure definitions
+      bpftrace.parse_btf({});
       bpftrace.probe_matcher_->list_structs(args.search);
       return 0;
     }
@@ -773,6 +789,8 @@ int main(int argc, char* argv[])
     int err = driver.parse();
     if (err)
       return err;
+
+    bpftrace.parse_btf(driver.list_modules());
 
     ast::SemanticAnalyser semantics(driver.root.get(), bpftrace, false, true);
     err = semantics.analyse();

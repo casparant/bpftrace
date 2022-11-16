@@ -96,7 +96,6 @@ public:
         out_(std::move(o)),
         feature_(std::make_unique<BPFfeature>()),
         probe_matcher_(std::make_unique<ProbeMatcher>(this)),
-        btf_(this),
         ncpus_(get_possible_cpus().size())
   {
   }
@@ -143,10 +142,14 @@ public:
   std::optional<long> get_int_literal(const ast::Expression *expr) const;
   std::optional<std::string> get_watchpoint_binary_path() const;
   virtual bool is_traceable_func(const std::string &func_name) const;
+  std::unordered_set<std::string> get_func_modules(
+      const std::string &func_name) const;
   int create_pcaps(void);
   void close_pcaps(void);
   bool write_pcaps(uint64_t id, uint64_t ns, uint8_t *pkt, unsigned int size);
 
+  void parse_btf(const std::set<std::string> &modules);
+  bool has_btf_data() const;
   Dwarf *get_dwarf(const std::string &filename);
   Dwarf *get_dwarf(const ast::AttachPoint &attachpoint);
 
@@ -163,7 +166,8 @@ public:
   std::map<std::string, std::string> macros_;
   std::map<std::string, uint64_t> enums_;
   std::map<libbpf::bpf_func_id, location> helper_use_loc_;
-  std::unordered_set<std::string> traceable_funcs_;
+  // mapping traceable functions to modules (or "vmlinux") that they appear in
+  FuncsModulesMap traceable_funcs_;
   std::vector<std::unique_ptr<AttachedProbe>> attached_probes_;
 
   std::map<std::string, std::unique_ptr<PCAPwriter>> pcap_writers;
@@ -198,7 +202,7 @@ public:
 
   std::unique_ptr<ProbeMatcher> probe_matcher_;
 
-  BTF btf_;
+  std::unique_ptr<BTF> btf_;
   std::unordered_set<std::string> btf_set_;
   std::map<std::string, ProbeArgs> ap_args_;
   std::unique_ptr<ChildProcBase> child_;

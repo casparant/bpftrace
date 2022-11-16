@@ -525,12 +525,14 @@ class clang_parser_btf : public test_btf
 TEST_F(clang_parser_btf, btf)
 {
   BPFtrace bpftrace;
-  parse("", bpftrace, true,
-        "kprobe:sys_read {\n"
-        "  @x1 = (struct Foo1 *) curtask;\n"
-        "  @x2 = (struct Foo2 *) curtask;\n"
-        "  @x3 = (struct Foo3 *) curtask;\n"
-        "}");
+  bpftrace.parse_btf({});
+  parse("struct Foo { "
+        "  struct Foo1 f1;"
+        "  struct Foo2 f2;"
+        "  struct Foo3 f3;"
+        "  struct task_struct t;"
+        "}",
+        bpftrace);
 
   ASSERT_TRUE(bpftrace.structs.Has("struct Foo1"));
   ASSERT_TRUE(bpftrace.structs.Has("struct Foo2"));
@@ -598,51 +600,13 @@ TEST_F(clang_parser_btf, btf)
   EXPECT_EQ(foo2_field.offset, 8);
 }
 
-TEST_F(clang_parser_btf, btf_field_struct)
-{
-  BPFtrace bpftrace;
-  parse("",
-        bpftrace,
-        true,
-        "kprobe:sys_read {\n"
-        "  @x3 = ((struct Foo3 *) curtask)->foo2->g;\n"
-        "}");
-
-  /* task_struct->Foo3->Foo2->char */
-  EXPECT_EQ(bpftrace.btf_set_.size(), 4U);
-  EXPECT_NE(bpftrace.btf_set_.find("struct task_struct"), bpftrace.btf_set_.end());
-  EXPECT_NE(bpftrace.btf_set_.find("struct Foo3"), bpftrace.btf_set_.end());
-  EXPECT_NE(bpftrace.btf_set_.find("struct Foo2"), bpftrace.btf_set_.end());
-  EXPECT_NE(bpftrace.btf_set_.find("char"), bpftrace.btf_set_.end());
-}
-
-TEST_F(clang_parser_btf, btf_variable_field_struct)
-{
-  BPFtrace bpftrace;
-  parse("",
-        bpftrace,
-        true,
-        "kprobe:sys_read {\n"
-        "  @x1 = ((struct Foo3 *) curtask);\n"
-        "  @x2 = ((struct Foo1 *) curtask);\n"
-        "  @x3 = @x1->foo2;\n"
-        "}");
-
-  EXPECT_EQ(bpftrace.btf_set_.size(), 4U);
-  EXPECT_NE(bpftrace.btf_set_.find("struct task_struct"),
-            bpftrace.btf_set_.end());
-  EXPECT_NE(bpftrace.btf_set_.find("struct Foo1"), bpftrace.btf_set_.end());
-  // struct Foo2 should be added by @x1->foo2
-  EXPECT_NE(bpftrace.btf_set_.find("struct Foo2"), bpftrace.btf_set_.end());
-  EXPECT_NE(bpftrace.btf_set_.find("struct Foo3"), bpftrace.btf_set_.end());
-}
-
 TEST(clang_parser, btf_unresolved_typedef)
 {
   // size_t is defined in stddef.h, but if we have BTF, it should be possible to
   // extract it from there
   BPFtrace bpftrace;
-  if (!bpftrace.btf_.has_data())
+  bpftrace.parse_btf({});
+  if (!bpftrace.has_btf_data())
     GTEST_SKIP();
 
   parse("struct Foo { size_t x; };", bpftrace);
@@ -663,6 +627,7 @@ TEST_F(clang_parser_btf, btf_type_override)
 {
   // It should be possible to override types from BTF, ...
   BPFtrace bpftrace;
+  bpftrace.parse_btf({});
   parse("struct Foo1 { int a; };\n",
         bpftrace,
         true,
