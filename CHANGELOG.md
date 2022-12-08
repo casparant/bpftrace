@@ -13,6 +13,8 @@ and this project adheres to
   - [#2360](https://github.com/iovisor/bpftrace/pull/2360)
 - Support BTF for kernel modules
   - [#2315](https://github.com/iovisor/bpftrace/pull/2315)
+- Add %rh option to print buffer as hex without \x
+  - [#2445](https://github.com/iovisor/bpftrace/pull/2445)
 #### Changed
 - Raise minimum versions for libbpf and bcc and vendor them for local builds
   - [#2369](https://github.com/iovisor/bpftrace/pull/2369)
@@ -34,6 +36,8 @@ and this project adheres to
   - [#2439](https://github.com/iovisor/bpftrace/pull/2439)
 - Support profile and interval probes in probe matcher
   - [#2443](https://github.com/iovisor/bpftrace/pull/2443)
+- Fix BTF detection macro in tools/old/mdflush.bt
+  - [#2444](https://github.com/iovisor/bpftrace/pull/2444)
 
 #### Docs
 #### Tools
