@@ -1073,6 +1073,42 @@ TEST(semantic_analyser, array_as_map_key)
        2);
 }
 
+TEST(semantic_analyser, array_compare)
+{
+  test("#include <stdint.h>\n"
+       "struct MyStruct { uint8_t x[4]; }"
+       "kprobe:f { $s = (struct MyStruct *) arg0; @ = ($s->x == $s->x); }",
+       0);
+  test("#include <stdint.h>\n"
+       "struct MyStruct { uint64_t x[4]; } "
+       "kprobe:f { $s = (struct MyStruct *) arg0; @ = ($s->x == $s->x); }",
+       0);
+  test("struct MyStruct { int x[4]; } "
+       "kprobe:f { $s = (struct MyStruct *) arg0; @ = ($s->x != $s->x); }",
+       0);
+
+  // unsupported operators
+  test("struct MyStruct { int x[4]; } "
+       "kprobe:f { $s = (struct MyStruct *) arg0; @ = ($s->x > $s->x); }",
+       10);
+
+  // different length
+  test("struct MyStruct { int x[4]; int y[8]; }"
+       "kprobe:f { $s = (struct MyStruct *) arg0; @ = ($s->x == $s->y); }",
+       10);
+
+  // different element type
+  test("#include <stdint.h>\n"
+       "struct MyStruct { uint8_t x[4]; uint16_t y[4]; } "
+       "kprobe:f { $s = (struct MyStruct *) arg0; @ = ($s->x == $s->y); }",
+       10);
+
+  // compare with other type
+  test("struct MyStruct { int x[4]; int y; } "
+       "kprobe:f { $s = (struct MyStruct *) arg0; @ = ($s->x == $s->y); }",
+       10);
+}
+
 TEST(semantic_analyser, variable_type)
 {
   BPFtrace bpftrace;
@@ -2030,6 +2066,23 @@ TEST(semantic_analyser, strncmp_posparam)
   bpftrace.add_param("hello");
   test(bpftrace, "i:s:1 { strncmp(\"foo\", \"bar\", $1) }", 0);
   test(bpftrace, "i:s:1 { strncmp(\"foo\", \"bar\", $2) }", 1);
+}
+
+TEST(semantic_analyser, strconrtains)
+{
+  // Test strcontains builtin
+  test("i:s:1 { $a = \"bar\"; strcontains(\"foo\", $a) }", 0);
+  test("i:s:1 { strcontains(\"foo\", \"bar\") }", 0);
+  test("i:s:1 { strcontains(1) }", 1);
+  test("i:s:1 { strcontains(1,1) }", 10);
+  test("i:s:1 { strcontains(\"a\",1) }", 10);
+}
+
+TEST(semantic_analyser, strcontains_posparam)
+{
+  BPFtrace bpftrace;
+  bpftrace.add_param("hello");
+  test(bpftrace, "i:s:1 { strcontains(\"foo\", str($1)) }", 0);
 }
 
 TEST(semantic_analyser, override)

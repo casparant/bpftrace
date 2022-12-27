@@ -1159,6 +1159,20 @@ void CodegenLLVM::visit(Call &call)
                              size,
                              false);
   }
+  else if (call.func == "strcontains")
+  {
+    const auto &left_arg = call.vargs->at(0);
+    const auto &right_arg = call.vargs->at(1);
+
+    auto left_string = getString(left_arg);
+    auto right_string = getString(right_arg);
+
+    expr_ = b_.CreateStrcontains(left_string.first,
+                                 left_string.second,
+                                 right_string.first,
+                                 right_string.second,
+                                 false);
+  }
   else if (call.func == "override")
   {
     // long bpf_override(struct pt_regs *regs, u64 rc)
@@ -1334,6 +1348,49 @@ void CodegenLLVM::binop_string(Binop &binop)
                            right_string.second,
                            len,
                            inverse);
+}
+
+void CodegenLLVM::binop_integer_array(Binop &binop)
+{
+  assert(binop.op == Operator::EQ || binop.op == Operator::NE);
+
+  // integer array compare returns 0 when arrays are equal
+  bool inverse = binop.op == Operator::EQ;
+
+  auto scoped_del_left = accept(binop.left);
+  Value *left_array_val = expr_;
+
+  auto scoped_del_right = accept(binop.right);
+  Value *right_array_val = expr_;
+
+  auto &left_array_ty = binop.left->type;
+  auto &right_array_ty = binop.right->type;
+
+  assert(left_array_ty.GetNumElements() == right_array_ty.GetNumElements());
+  assert(left_array_ty.GetElementTy()->GetSize() ==
+         right_array_ty.GetElementTy()->GetSize());
+
+  if (bpftrace_.feature_->has_loop())
+  {
+    expr_ = b_.CreateIntegerArrayCmp(ctx_,
+                                     left_array_val,
+                                     right_array_val,
+                                     left_array_ty,
+                                     right_array_ty,
+                                     inverse,
+                                     binop.loc,
+                                     createLoopMetadata());
+  }
+  else
+  {
+    expr_ = b_.CreateIntegerArrayCmpUnrolled(ctx_,
+                                             left_array_val,
+                                             right_array_val,
+                                             left_array_ty,
+                                             right_array_ty,
+                                             inverse,
+                                             binop.loc);
+  }
 }
 
 void CodegenLLVM::binop_buf(Binop &binop)
@@ -1577,6 +1634,10 @@ void CodegenLLVM::visit(Binop &binop)
   else if (type.IsBufferTy())
   {
     binop_buf(binop);
+  }
+  else if (type.IsArrayTy() && type.GetElementTy()->IsIntegerTy())
+  {
+    binop_integer_array(binop);
   }
   else
   {
