@@ -13,6 +13,8 @@ and this project adheres to
   - [#2524](https://github.com/iovisor/bpftrace/pull/2524)
 - Support parsing bitfields from BTF/DWARF
   - [#2505](https://github.com/iovisor/bpftrace/pull/2505)
+- Support printing entire structs
+  - [#2557](https://github.com/iovisor/bpftrace/pull/2557)
 #### Changed
 #### Deprecated
 #### Removed
@@ -27,6 +29,8 @@ and this project adheres to
   - [#2545](https://github.com/iovisor/bpftrace/pull/2545)
 - Treat str() builtin's len parameter as int64
   - [#2546](https://github.com/iovisor/bpftrace/pull/2546)
+- arm64: define the KASAN_SHADOW_SCALE_SHIFT macro
+  - [#2518](https://github.com/iovisor/bpftrace/pull/2518)
 #### Docs
 #### Tools
 
